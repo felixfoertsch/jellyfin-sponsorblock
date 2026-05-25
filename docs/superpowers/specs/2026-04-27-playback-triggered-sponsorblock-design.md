@@ -66,7 +66,7 @@ Stored states (one row per item in SQLite):
 
 - `Pending` — fetched at least once, no segments yet, still inside the 48h grace window
 - `HasData` — has segments
-- `NoData` — sanity-checked at ≥48h post-`first_seen_at` and still nothing → permanently skipped
+- `NoData` — sanity-checked at ≥48h post-`first_seen_at` and still nothing → cooldown; rechecked after `PendingSanityHours`
 
 `Unknown` and `Sanity` are transient computations, not stored.
 
@@ -76,20 +76,20 @@ Stored states (one row per item in SQLite):
 
 | Current row state | Trigger | Action |
 |---|---|---|
-| (no row) | any | Insert `first_seen_at=now`, fetch, persist as `Pending` or `HasData` |
+| (no row) | any | Insert `first_seen_at=now` (`DailyScan` may use Jellyfin `DateCreated` for old archive items), fetch, persist as `Pending`, `HasData`, or `NoData` |
 | `Pending` | `PlaybackStart` | If `now - first_seen_at >= playbackPollHours` (default 24h): fetch; promote to `HasData` if segments returned. Otherwise no-op. |
 | `Pending` | `DailyScan` | If `now - first_seen_at >= sanityHours` (default 48h): sanity scan → `HasData` or `NoData`. Else: opportunistic fetch (same code path, stays `Pending` if empty). |
 | `Pending` | `ItemAdded` | Shouldn't happen (no row → row insert covers ItemAdded). Log warning, treat as new. |
 | `HasData` | `DailyScan` | Refresh: `DeleteSegments` + `CreateSegment` per new segment + update `last_fetch_at` |
 | `HasData` | `PlaybackStart` | No-op (data already present; daily scan handles freshness) |
 | `HasData` | `ItemAdded` | Shouldn't happen — log warning |
-| `NoData` | any | No-op, return immediately |
+| `NoData` | any | If `now - last_fetch_at < sanityHours`: no-op. Else fetch; promote to `HasData` if segments returned, otherwise remain `NoData` with refreshed `last_fetch_at`. |
 
 ### Rationale
 
 - `Pending` items get one playback-triggered retry after `playbackPollHours` (default 24h), when SponsorBlock data should have converged. The daily scan also touches them, leading to the 48h sanity check.
 - `HasData` items don't get hammered on every play.
-- `NoData` items are dead weight after one final sanity check.
+- `NoData` items cool down after a sanity check, but are not permanent tombstones.
 - The 48h grace covers the user's stated assumption that SponsorBlock data has converged ~24h after release with safety margin.
 
 ### Failure rule (single source of truth)
@@ -153,7 +153,7 @@ All times stored as UTC unix seconds. `DailyScanHour` from config is interpreted
 
 ### `SponsorBlockRefreshTask : IScheduledTask`
 - Default trigger: daily at `DailyScanHour:00` local time (Jellyfin's `TaskTriggerInfo.Type = "DailyTrigger"`).
-- `ExecuteAsync`: `StateStore.GetActive()` → for each row, `_libraryManager.GetItemById(row.item_id)`. If null, drop row + delete owned segments. Else hand to orchestrator with `reason=DailyScan`.
+- `ExecuteAsync`: `StateStore.GetActive()` → for each row, `_libraryManager.GetItemById(row.item_id)`. If null, drop row + delete owned segments. Else hand to orchestrator with `reason=DailyScan`. Then enumerate scoped library videos older than `PendingSanityHours` that were not active rows, so existing archives and cooled-down `NoData` rows can be discovered by the daily task.
 - Sequential, with a `RequestDelayMilliseconds` delay between requests to avoid spiking the public SponsorBlock API.
 - Reports progress through `IProgress<double>` so the Tasks page renders a progress bar.
 
@@ -205,7 +205,7 @@ Edge cases:
 - **Item moves to a different library.** Scope is re-checked on every call. Removing a library from config silently stops refreshing those items; their `HasData` rows go stale but harmlessly.
 - **Library removed from config.** Existing rows + owned segments stay. No automatic cleanup. (Future "reset state" UI is out of scope for v1.)
 - **Plugin upgrade adds a category to config.** User toggles it on; existing `HasData` items get the new category at next daily refresh (≤24h). Acceptable.
-- **Fresh install on existing library.** Daily scan finds zero rows. Items enter the system on `ItemAdded` (new downloads) or `PlaybackStart` (when user plays). No bulk backfill. Deliberate — backfill would re-create the slow-scan problem.
+- **Fresh install on existing library.** Items enter the system on `ItemAdded` (new downloads), `PlaybackStart` (when user plays), or the daily scan once their Jellyfin item `DateCreated` is older than `PendingSanityHours`.
 - **Plugin disabled then re-enabled.** SQLite persists; `IHostedService.StartAsync` re-subscribes.
 - **Server clock skew across the 48h boundary.** All stored times are UTC seconds. The 48h boundary is computed against UTC `now`.
 
@@ -216,7 +216,7 @@ xUnit project `Jellyfin.Plugin.SponsorBlock.Tests` (already present).
 - **`SponsorBlockOrchestratorTests`** — the bulk. Mock `ISponsorBlockApiClient`, `ISponsorBlockStateStore`, `ILibraryScopeService`, `IMediaSegmentManager`. Use `FakeTimeProvider` so the 48h boundary is deterministic. One test per row of the decision table, plus failure-mode tests (HTTP error → no transition, 404 → state advances, etc.).
 - **`SqliteSponsorBlockStateStoreTests`** — real SQLite against `:memory:`. Round-trip CRUD + the `GetActive()` query.
 - **`LibraryScopeServiceTests`** — fake item hierarchy, verify in/out of scope, empty allowlist → false.
-- **`SponsorBlockRefreshTaskTests`** — mock `IStateStore` + `_libraryManager`. Verifies it iterates `Pending`+`HasData`, skips `NoData`, drops orphaned rows, throttles between requests.
+- **`SponsorBlockRefreshTaskTests`** — mock `IStateStore` + `_libraryManager`. Verifies it iterates `Pending`+`HasData`, discovers old scoped videos without active rows, drops orphaned rows, throttles between requests.
 - **Existing tests for `YouTubeIdExtractor`, `CategoryMapping`, `SponsorBlockSegmentProvider.MapSegments`** — keep. The mapping logic moves to the orchestrator; `MapSegments` survives as a static helper (re-home it if `SponsorBlockSegmentProvider` is deleted).
 
 Services depend on **interfaces** (`ISponsorBlockApiClient`, `ISponsorBlockStateStore`, `ILibraryScopeService`, `TimeProvider`) — not concrete classes — to keep tests cheap.

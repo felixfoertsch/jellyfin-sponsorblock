@@ -7,6 +7,14 @@
 		"owner": "felixfoertsch",
 		"versions": [
 			{
+				"version": "1.1.7.0",
+				"changelog": "Fix automatic loading for old archives. The daily refresh now discovers selected-library videos older than the sanity-check window, old untracked items use their Jellyfin DateCreated for the 48-hour decision, and NoData rows recheck after cooldown instead of being terminal.",
+				"targetAbi": "10.11.0.0",
+				"sourceUrl": "https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/download/v1.1.7.0/jellyfin-plugin-sponsorblock-1.1.7.0.zip",
+				"checksum": "e85157239473865db7aafd94f6c3f2ea",
+				"timestamp": "2026-05-25T00:00:00Z"
+			},
+			{
 				"version": "1.1.6.0",
 				"changelog": "Add a one-shot Force Scan button for existing archives. Admins can backfill every video in the selected libraries once, while the normal daily refresh stays limited to tracked Pending and HasData items. Includes duplicate-scan protection and status endpoints.",
 				"targetAbi": "10.11.0.0",

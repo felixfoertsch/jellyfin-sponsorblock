@@ -116,7 +116,7 @@
 					<div class="inputContainer">
 						<label class="inputLabel" for="PendingSanityHours">Sanity-check window (hours)</label>
 						<input id="PendingSanityHours" type="number" min="0" is="emby-input" />
-						<div class="fieldDescription">After this many hours, an item with no SponsorBlock data is permanently skipped.</div>
+						<div class="fieldDescription">After this many hours, an item with no SponsorBlock data enters a cooldown and is rechecked after the same interval.</div>
 					</div>
 					<div class="inputContainer">
 						<label class="inputLabel" for="RequestDelayMilliseconds">Daily-scan request delay (ms)</label>
@@ -143,8 +143,8 @@
 					<h3>Force scan</h3>
 					<div class="fieldDescription" style="margin-bottom: 0.5em;">
 						Scans every video in the selected libraries once. Use this after enabling the plugin
-						for an existing archive. The daily refresh keeps checking only tracked pending items
-						until they either get SponsorBlock data or age out.
+						for an existing archive. The daily refresh also discovers old selected-library items
+						and keeps checking items until they either get SponsorBlock data or enter cooldown.
 					</div>
 					<button is="emby-button" type="button" class="raised block emby-button"
 						onclick="SponsorBlockConfig.forceScanAll()">
@@ -157,7 +157,8 @@
 					<div class="fieldDescription" style="margin-bottom: 0.5em;">
 						Wipes the SponsorBlock state and removes all media segments owned by this plugin
 						for every item in the selected libraries above. Items are then treated as freshly
-						added — the next playback (or the next daily refresh) re-fetches segments.
+						added — the next playback re-fetches segments, as does a daily refresh once the
+						item is older than the sanity-check window.
 					</div>
 					<button is="emby-button" type="button" class="raised block emby-button"
 						onclick="SponsorBlockConfig.reset()">

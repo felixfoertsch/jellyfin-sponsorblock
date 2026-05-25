@@ -76,7 +76,8 @@ public class PluginConfiguration : BasePluginConfiguration
 
 	/// <summary>
 	/// Gets or sets the age boundary (hours since first observed) at which a Pending item
-	/// is sanity-checked one last time and promoted to NoData if still empty.
+	/// is sanity-checked and promoted to NoData if still empty. NoData items recheck after
+	/// the same cooldown.
 	/// </summary>
 	public int PendingSanityHours { get; set; } = 48;
 

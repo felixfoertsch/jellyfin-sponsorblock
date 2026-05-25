@@ -11,6 +11,6 @@ public enum ItemState
 	/// <summary>Has at least one segment from a successful fetch.</summary>
 	HasData = 1,
 
-	/// <summary>Sanity-checked at ≥ PendingSanityHours and still empty. Permanently skipped.</summary>
+	/// <summary>Sanity-checked at ≥ PendingSanityHours and still empty. Rechecked after the same cooldown.</summary>
 	NoData = 2,
 }

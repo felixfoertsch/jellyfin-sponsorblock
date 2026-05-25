@@ -183,7 +183,7 @@ public class SponsorBlockOrchestratorTests
 	}
 
 	[Fact]
-	public async Task NoData_AnyTrigger_NoOps()
+	public async Task NoData_WithinSanityWindow_NoOps()
 	{
 		var item = FakeItem(Guid.NewGuid());
 		_scope.IsInScope(item).Returns(true);
@@ -194,6 +194,24 @@ public class SponsorBlockOrchestratorTests
 		await MakeOrchestrator().ProcessAsync(item, ProcessReason.PlaybackStart, CancellationToken.None);
 
 		await _api.DidNotReceive().GetSegmentsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task NoData_PlaybackStart_AfterSanityWindow_RefetchesAndPromotesOnSegments()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.NoData, firstSeen: T0.AddDays(-7), lastFetchAt: T0.AddHours(-50)));
+		_api.GetSegmentsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.PlaybackStart, CancellationToken.None);
+
+		await _writer.Received(1).CreateAsync(Arg.Any<MediaSegmentDto>(), Arg.Any<CancellationToken>());
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.HasData && r.SegmentCount == 1),
+			Arg.Any<CancellationToken>());
 	}
 
 	[Fact]
@@ -227,6 +245,7 @@ public class SponsorBlockOrchestratorTests
 		Guid itemId,
 		ItemState state,
 		int segmentCount = 0,
-		DateTimeOffset? firstSeen = null) =>
-		new(itemId, "abcdefghijk", state, firstSeen ?? T0, T0, segmentCount);
+		DateTimeOffset? firstSeen = null,
+		DateTimeOffset? lastFetchAt = null) =>
+		new(itemId, "abcdefghijk", state, firstSeen ?? T0, lastFetchAt ?? T0, segmentCount);
 }

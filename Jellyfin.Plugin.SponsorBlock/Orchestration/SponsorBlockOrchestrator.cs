@@ -95,7 +95,7 @@ public sealed class SponsorBlockOrchestrator
 		await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
-			await ProcessLockedAsync(item.Id, videoId, reason, config, cancellationToken).ConfigureAwait(false);
+			await ProcessLockedAsync(item.Id, item.DateCreated, videoId, reason, config, cancellationToken).ConfigureAwait(false);
 		}
 		finally
 		{
@@ -105,24 +105,28 @@ public sealed class SponsorBlockOrchestrator
 
 	private async Task ProcessLockedAsync(
 		Guid itemId,
+		DateTime itemDateCreated,
 		string videoId,
 		ProcessReason reason,
 		PluginConfiguration config,
 		CancellationToken ct)
 	{
 		var existing = await _store.GetAsync(itemId, ct).ConfigureAwait(false);
+		var now = _time.GetUtcNow();
 
 		if (existing is { State: ItemState.NoData })
 		{
-			return;
+			var ageHours = (now - existing.LastFetchAt).TotalHours;
+			if (ageHours < config.PendingSanityHours)
+			{
+				return;
+			}
 		}
 
 		if (existing is { State: ItemState.HasData } && reason == ProcessReason.PlaybackStart && _writer.HasAny(itemId))
 		{
 			return;
 		}
-
-		var now = _time.GetUtcNow();
 
 		if (existing is { State: ItemState.Pending } && reason == ProcessReason.PlaybackStart)
 		{
@@ -155,7 +159,7 @@ public sealed class SponsorBlockOrchestrator
 			return;
 		}
 
-		var firstSeen = existing?.FirstSeenAt ?? now;
+		var firstSeen = existing?.FirstSeenAt ?? GetInitialFirstSeen(reason, itemDateCreated, now);
 		var hasSegments = apiSegments.Any(s => s.ActionType == "skip");
 
 		if (hasSegments)
@@ -179,5 +183,26 @@ public sealed class SponsorBlockOrchestrator
 		await _store.UpsertAsync(
 			new ItemStateRow(itemId, videoId, newState, firstSeen, now, 0),
 			ct).ConfigureAwait(false);
+	}
+
+	private static DateTimeOffset GetInitialFirstSeen(ProcessReason reason, DateTime itemDateCreated, DateTimeOffset now)
+	{
+		if (reason != ProcessReason.DailyScan)
+		{
+			return now;
+		}
+
+		var created = ToUtc(itemDateCreated);
+		return created > now ? now : created;
+	}
+
+	private static DateTimeOffset ToUtc(DateTime value)
+	{
+		if (value.Kind == DateTimeKind.Unspecified)
+		{
+			return new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc));
+		}
+
+		return new DateTimeOffset(value.ToUniversalTime());
 	}
 }

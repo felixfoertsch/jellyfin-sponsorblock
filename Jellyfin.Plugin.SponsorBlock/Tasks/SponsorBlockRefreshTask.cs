@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.SponsorBlock.Configuration;
 using Jellyfin.Plugin.SponsorBlock.Orchestration;
 using Jellyfin.Plugin.SponsorBlock.State;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -8,15 +9,18 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.SponsorBlock.Tasks;
 
 /// <summary>
-/// Daily refresh task: walks all Pending + HasData rows, runs the orchestrator with DailyScan reason.
-/// Drops orphan rows whose item no longer exists in the library.
+/// Daily refresh task: walks all Pending + HasData rows, then discovers old scoped videos that
+/// do not have active rows yet. Drops orphan rows whose item no longer exists in the library.
 /// </summary>
 public sealed class SponsorBlockRefreshTask : IScheduledTask
 {
 	private readonly ISponsorBlockStateStore _store;
-	private readonly ILibraryManager _libraryManager;
+	private readonly Func<Guid, BaseItem?> _getItemById;
 	private readonly SponsorBlockOrchestrator _orchestrator;
 	private readonly IMediaSegmentWriter _writer;
+	private readonly Func<PluginConfiguration> _configAccessor;
+	private readonly Func<Guid[], IEnumerable<Video>> _scopedVideos;
+	private readonly TimeProvider _time;
 	private readonly ILogger<SponsorBlockRefreshTask> _logger;
 
 	/// <summary>Initializes the scheduled task.</summary>
@@ -31,11 +35,35 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		SponsorBlockOrchestrator orchestrator,
 		IMediaSegmentWriter writer,
 		ILogger<SponsorBlockRefreshTask> logger)
+		: this(
+			store,
+			libraryManager.GetItemById,
+			orchestrator,
+			writer,
+			() => Plugin.Instance?.Configuration ?? new PluginConfiguration(),
+			ids => EnumerateScoped(libraryManager, ids),
+			TimeProvider.System,
+			logger)
+	{
+	}
+
+	internal SponsorBlockRefreshTask(
+		ISponsorBlockStateStore store,
+		Func<Guid, BaseItem?> getItemById,
+		SponsorBlockOrchestrator orchestrator,
+		IMediaSegmentWriter writer,
+		Func<PluginConfiguration> configAccessor,
+		Func<Guid[], IEnumerable<Video>> scopedVideos,
+		TimeProvider time,
+		ILogger<SponsorBlockRefreshTask> logger)
 	{
 		_store = store;
-		_libraryManager = libraryManager;
+		_getItemById = getItemById;
 		_orchestrator = orchestrator;
 		_writer = writer;
+		_configAccessor = configAccessor;
+		_scopedVideos = scopedVideos;
+		_time = time;
 		_logger = logger;
 	}
 
@@ -46,7 +74,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	public string Key => "SponsorBlockRefresh";
 
 	/// <inheritdoc />
-	public string Description => "Refreshes SponsorBlock segments for tracked items and runs the 48-hour sanity check on items with no data.";
+	public string Description => "Refreshes SponsorBlock segments for tracked items, discovers old scoped items, and runs the 48-hour sanity check.";
 
 	/// <inheritdoc />
 	public string Category => "SponsorBlock";
@@ -54,7 +82,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	/// <inheritdoc />
 	public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
 	{
-		var hour = Plugin.Instance?.Configuration.DailyScanHour ?? 6;
+		var hour = _configAccessor().DailyScanHour;
 		return new[]
 		{
 			new TaskTriggerInfo
@@ -68,7 +96,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	/// <inheritdoc />
 	public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
 	{
-		var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+		var config = _configAccessor();
 
 		var rows = new List<ItemStateRow>();
 		await foreach (var row in _store.GetActiveAsync(cancellationToken).ConfigureAwait(false))
@@ -76,18 +104,21 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 			rows.Add(row);
 		}
 
-		if (rows.Count == 0)
+		var activeIds = rows.Select(row => row.ItemId).ToHashSet();
+		var oldVideosWithoutActiveRows = GetOldScopedVideosWithoutActiveRows(config, activeIds).ToList();
+		var total = rows.Count + oldVideosWithoutActiveRows.Count;
+		if (total == 0)
 		{
 			progress.Report(100);
 			return;
 		}
 
-		for (var i = 0; i < rows.Count; i++)
+		var processed = 0;
+		foreach (var row in rows)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
-			var row = rows[i];
 
-			var item = _libraryManager.GetItemById(row.ItemId);
+			var item = _getItemById(row.ItemId);
 			if (item is null)
 			{
 				_logger.LogInformation("Dropping orphan SponsorBlock state for missing item {ItemId}", row.ItemId);
@@ -114,11 +145,86 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 				}
 			}
 
-			progress.Report(100.0 * (i + 1) / rows.Count);
+			processed++;
+			progress.Report(100.0 * processed / total);
+			await DelayIfConfiguredAsync(config, cancellationToken).ConfigureAwait(false);
+		}
 
-			if (config.RequestDelayMilliseconds > 0)
+		foreach (var video in oldVideosWithoutActiveRows)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			try
 			{
-				await Task.Delay(config.RequestDelayMilliseconds, cancellationToken).ConfigureAwait(false);
+				await _orchestrator.ProcessAsync(video, ProcessReason.DailyScan, cancellationToken).ConfigureAwait(false);
+			}
+			catch (Exception ex)
+			{
+				_logger.LogError(ex, "Daily refresh failed for old scoped item {ItemId}", video.Id);
+			}
+
+			processed++;
+			progress.Report(100.0 * processed / total);
+			await DelayIfConfiguredAsync(config, cancellationToken).ConfigureAwait(false);
+		}
+	}
+
+	private IEnumerable<Video> GetOldScopedVideosWithoutActiveRows(PluginConfiguration config, HashSet<Guid> activeIds)
+	{
+		var enabled = config.EnabledLibraryIds;
+		if (enabled.Length == 0)
+		{
+			yield break;
+		}
+
+		var cutoff = _time.GetUtcNow() - TimeSpan.FromHours(config.PendingSanityHours);
+		foreach (var video in _scopedVideos(enabled))
+		{
+			if (activeIds.Contains(video.Id))
+			{
+				continue;
+			}
+
+			if (ToUtc(video.DateCreated) > cutoff)
+			{
+				continue;
+			}
+
+			yield return video;
+		}
+	}
+
+	private static DateTimeOffset ToUtc(DateTime value)
+	{
+		if (value.Kind == DateTimeKind.Unspecified)
+		{
+			return new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc));
+		}
+
+		return new DateTimeOffset(value.ToUniversalTime());
+	}
+
+	private static async Task DelayIfConfiguredAsync(PluginConfiguration config, CancellationToken cancellationToken)
+	{
+		if (config.RequestDelayMilliseconds > 0)
+		{
+			await Task.Delay(config.RequestDelayMilliseconds, cancellationToken).ConfigureAwait(false);
+		}
+	}
+
+	private static IEnumerable<Video> EnumerateScoped(ILibraryManager libraryManager, Guid[] enabled)
+	{
+		var query = new InternalItemsQuery
+		{
+			AncestorIds = enabled,
+			IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Video],
+			IsVirtualItem = false,
+			Recursive = true,
+		};
+		foreach (var item in libraryManager.GetItemList(query))
+		{
+			if (item is Video video)
+			{
+				yield return video;
 			}
 		}
 	}
