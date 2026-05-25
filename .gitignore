@@ -5,6 +5,7 @@
 .claude/
 
 # .NET / Visual Studio
+artifacts/
 bin/
 obj/
 .vs/

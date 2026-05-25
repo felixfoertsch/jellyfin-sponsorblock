@@ -24,7 +24,7 @@ Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names fi
 ### Manual installation
 
 1. Download `jellyfin-plugin-sponsorblock-<version>.zip` from the [latest release](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases)
-2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_1.1.7.0`)
+2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_1.1.7.1`)
 3. Restart Jellyfin
 
 ## Setup
@@ -113,9 +113,11 @@ The endpoint is `POST /Plugins/SponsorBlock/Reset` (admin only).
 ```bash
 dotnet build
 dotnet test
+./scripts/package-release.sh 1.1.7.1
 ```
 
 The plugin DLL is at `Jellyfin.Plugin.SponsorBlock/bin/Debug/net9.0/Jellyfin.Plugin.SponsorBlock.dll`.
+Release zips are written to `artifacts/` and intentionally contain only `Jellyfin.Plugin.SponsorBlock.dll`; Jellyfin provides the framework dependencies at runtime.
 
 ## License
 
