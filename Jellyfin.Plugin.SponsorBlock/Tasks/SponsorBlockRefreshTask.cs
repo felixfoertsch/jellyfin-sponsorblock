@@ -216,8 +216,6 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		var query = new InternalItemsQuery
 		{
 			AncestorIds = enabled,
-			IncludeItemTypes = [Jellyfin.Data.Enums.BaseItemKind.Video],
-			IsVirtualItem = false,
 			Recursive = true,
 		};
 		foreach (var item in libraryManager.GetItemList(query))

@@ -1,4 +1,3 @@
-using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.SponsorBlock.Configuration;
 using Jellyfin.Plugin.SponsorBlock.Orchestration;
 using MediaBrowser.Controller.Entities;
@@ -133,8 +132,6 @@ public sealed class ForceScanService : IForceScanService
 		var query = new InternalItemsQuery
 		{
 			AncestorIds = enabled,
-			IncludeItemTypes = [BaseItemKind.Video],
-			IsVirtualItem = false,
 			Recursive = true,
 		};
 		foreach (var item in libraryManager.GetItemList(query))
