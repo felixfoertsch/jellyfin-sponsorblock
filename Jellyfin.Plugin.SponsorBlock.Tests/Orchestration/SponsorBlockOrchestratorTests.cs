@@ -34,7 +34,8 @@ public class SponsorBlockOrchestratorTests
 		() => _config,
 		(_, _, _) => "abcdefghijk",
 		_time,
-		NullLogger<SponsorBlockOrchestrator>.Instance);
+		NullLogger<SponsorBlockOrchestrator>.Instance,
+		TestLog.Create());
 
 	private static BaseItem FakeItem(Guid id, string path = "/library/yt/abcdefghijk.mp4") =>
 		new TestItem { Id = id, Path = path };

@@ -96,7 +96,8 @@ public sealed class SponsorBlockRefreshTaskTests
 		() => config,
 		_ => scoped,
 		_time,
-		NullLogger<SponsorBlockRefreshTask>.Instance);
+		NullLogger<SponsorBlockRefreshTask>.Instance,
+		TestLog.Create());
 
 	private SponsorBlockOrchestrator MakeOrchestrator(PluginConfiguration config) => new(
 		_api,
@@ -104,8 +105,10 @@ public sealed class SponsorBlockRefreshTaskTests
 		_scope,
 		_writer,
 		() => config,
+		(_, _, _) => "abcdefghijk",
 		_time,
-		NullLogger<SponsorBlockOrchestrator>.Instance);
+		NullLogger<SponsorBlockOrchestrator>.Instance,
+		TestLog.Create());
 
 	private static async IAsyncEnumerable<ItemStateRow> Rows(
 		[EnumeratorCancellation] CancellationToken cancellationToken = default)

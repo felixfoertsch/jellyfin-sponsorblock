@@ -7,6 +7,14 @@
 		"owner": "felixfoertsch",
 		"versions": [
 			{
+				"version": "1.1.10.0",
+				"changelog": "Add dedicated SponsorBlock log file (log_SponsorBlock_YYYYMMDD.log) in Jellyfin's log directory. All info/warning/error events now write to both the main server log and the dedicated file, so the plugin appears as a separate log entry in the Jellyfin dashboard.",
+				"targetAbi": "10.11.0.0",
+				"sourceUrl": "https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/download/v1.1.10.0/jellyfin-plugin-sponsorblock-1.1.10.0.zip",
+				"checksum": "cc457dfdcf3e0ec35303662f97a3b678",
+				"timestamp": "2026-06-16T00:00:00Z"
+			},
+			{
 				"version": "1.1.9.0",
 				"changelog": "Add comprehensive logging to the orchestrator and triggers. Every decision point (scope check, path empty, ID extraction failure, state-machine skip, segment write, state transition) now logs at information or debug level, so issues are diagnosable directly from the Jellyfin log dashboard.",
 				"targetAbi": "10.11.0.0",

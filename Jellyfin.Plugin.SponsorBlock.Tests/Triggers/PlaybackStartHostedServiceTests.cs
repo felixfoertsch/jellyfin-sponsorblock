@@ -41,7 +41,8 @@ public class PlaybackStartHostedServiceTests
 			() => config,
 			(_, _, _) => "abcdefghijk",
 			TimeProvider.System,
-			NullLogger<SponsorBlockOrchestrator>.Instance);
+			NullLogger<SponsorBlockOrchestrator>.Instance,
+			TestLog.Create());
 
 		scope.IsInScope(item).Returns(true);
 		store.GetAsync(item.Id, Arg.Any<CancellationToken>()).Returns((ItemStateRow?)null);

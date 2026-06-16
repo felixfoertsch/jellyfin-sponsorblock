@@ -22,6 +22,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	private readonly Func<Guid[], IEnumerable<Video>> _scopedVideos;
 	private readonly TimeProvider _time;
 	private readonly ILogger<SponsorBlockRefreshTask> _logger;
+	private readonly SponsorBlockLog _log;
 
 	/// <summary>Initializes the scheduled task.</summary>
 	/// <param name="store">Per-item state store.</param>
@@ -29,12 +30,14 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	/// <param name="orchestrator">Orchestrator instance.</param>
 	/// <param name="writer">Wrapper around Jellyfin media segment manager.</param>
 	/// <param name="logger">Logger.</param>
+	/// <param name="log">Dedicated SponsorBlock file log.</param>
 	public SponsorBlockRefreshTask(
 		ISponsorBlockStateStore store,
 		ILibraryManager libraryManager,
 		SponsorBlockOrchestrator orchestrator,
 		IMediaSegmentWriter writer,
-		ILogger<SponsorBlockRefreshTask> logger)
+		ILogger<SponsorBlockRefreshTask> logger,
+		SponsorBlockLog log)
 		: this(
 			store,
 			libraryManager.GetItemById,
@@ -43,7 +46,8 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 			() => Plugin.Instance?.Configuration ?? new PluginConfiguration(),
 			ids => EnumerateScoped(libraryManager, ids),
 			TimeProvider.System,
-			logger)
+			logger,
+			log)
 	{
 	}
 
@@ -55,7 +59,8 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		Func<PluginConfiguration> configAccessor,
 		Func<Guid[], IEnumerable<Video>> scopedVideos,
 		TimeProvider time,
-		ILogger<SponsorBlockRefreshTask> logger)
+		ILogger<SponsorBlockRefreshTask> logger,
+		SponsorBlockLog log)
 	{
 		_store = store;
 		_getItemById = getItemById;
@@ -65,6 +70,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		_scopedVideos = scopedVideos;
 		_time = time;
 		_logger = logger;
+		_log = log;
 	}
 
 	/// <inheritdoc />
@@ -108,6 +114,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		var oldVideosWithoutActiveRows = GetOldScopedVideosWithoutActiveRows(config, activeIds).ToList();
 		var total = rows.Count + oldVideosWithoutActiveRows.Count;
 		_logger.LogInformation("SponsorBlock daily refresh: {ActiveRows} active rows, {OldVideos} old scoped videos discovered — {Total} total to process", rows.Count, oldVideosWithoutActiveRows.Count, total);
+		_log.Information($"Daily refresh: {rows.Count} active rows, {oldVideosWithoutActiveRows.Count} old scoped videos — {total} total to process");
 		if (total == 0)
 		{
 			progress.Report(100);
@@ -169,6 +176,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		}
 
 		_logger.LogInformation("SponsorBlock daily refresh complete: {Total} items processed", total);
+		_log.Information($"Daily refresh complete: {total} items processed");
 	}
 
 	private IEnumerable<Video> GetOldScopedVideosWithoutActiveRows(PluginConfiguration config, HashSet<Guid> activeIds)

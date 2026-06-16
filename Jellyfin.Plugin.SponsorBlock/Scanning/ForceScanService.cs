@@ -15,6 +15,7 @@ public sealed class ForceScanService : IForceScanService
 	private readonly Func<PluginConfiguration> _configAccessor;
 	private readonly Func<Guid[], IEnumerable<Video>> _scopedVideos;
 	private readonly ILogger<ForceScanService> _logger;
+	private readonly SponsorBlockLog _log;
 	private int _running;
 	private DateTimeOffset? _lastStartedAt;
 	private DateTimeOffset? _lastCompletedAt;
@@ -27,12 +28,14 @@ public sealed class ForceScanService : IForceScanService
 	/// <param name="orchestrator">SponsorBlock processor.</param>
 	/// <param name="configAccessor">Returns the current plugin configuration.</param>
 	/// <param name="logger">Logger.</param>
+	/// <param name="log">Dedicated SponsorBlock file log.</param>
 	public ForceScanService(
 		ILibraryManager libraryManager,
 		SponsorBlockOrchestrator orchestrator,
 		Func<PluginConfiguration> configAccessor,
-		ILogger<ForceScanService> logger)
-		: this(orchestrator, configAccessor, ids => EnumerateScoped(libraryManager, ids), logger)
+		ILogger<ForceScanService> logger,
+		SponsorBlockLog log)
+		: this(orchestrator, configAccessor, ids => EnumerateScoped(libraryManager, ids), logger, log)
 	{
 	}
 
@@ -43,12 +46,14 @@ public sealed class ForceScanService : IForceScanService
 		SponsorBlockOrchestrator orchestrator,
 		Func<PluginConfiguration> configAccessor,
 		Func<Guid[], IEnumerable<Video>> scopedVideos,
-		ILogger<ForceScanService> logger)
+		ILogger<ForceScanService> logger,
+		SponsorBlockLog log)
 	{
 		_orchestrator = orchestrator;
 		_configAccessor = configAccessor;
 		_scopedVideos = scopedVideos;
 		_logger = logger;
+		_log = log;
 	}
 
 	/// <inheritdoc />
@@ -100,12 +105,14 @@ public sealed class ForceScanService : IForceScanService
 		if (enabled.Length == 0)
 		{
 			_logger.LogInformation("SponsorBlock force scan requested but no libraries are enabled — nothing to do.");
+			_log.Information("Force scan requested but no libraries are enabled — nothing to do");
 			return 0;
 		}
 
 		var count = 0;
 		var videos = _scopedVideos(enabled).ToList();
 		_logger.LogInformation("SponsorBlock force scan starting: {Count} items in scoped libraries", videos.Count);
+		_log.Information($"Force scan starting: {videos.Count} items in scoped libraries");
 		foreach (var video in videos)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
@@ -126,6 +133,7 @@ public sealed class ForceScanService : IForceScanService
 		}
 
 		_logger.LogInformation("SponsorBlock force scan complete: processed {Count} items in scoped libraries.", count);
+		_log.Information($"Force scan complete: processed {count} items in scoped libraries");
 		return count;
 	}
 

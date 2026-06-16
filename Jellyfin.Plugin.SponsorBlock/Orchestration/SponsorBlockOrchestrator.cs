@@ -20,6 +20,7 @@ public sealed class SponsorBlockOrchestrator
 	private readonly Func<string, FileMatchingMode, string?, string?> _extractVideoId;
 	private readonly TimeProvider _time;
 	private readonly ILogger<SponsorBlockOrchestrator> _logger;
+	private readonly SponsorBlockLog _log;
 	private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _itemLocks = new();
 
 	/// <summary>Production constructor (uses static <see cref="YouTubeIdExtractor"/>).</summary>
@@ -30,6 +31,7 @@ public sealed class SponsorBlockOrchestrator
 	/// <param name="config">Returns the current plugin configuration.</param>
 	/// <param name="time">Time provider (use <see cref="TimeProvider.System"/> in production).</param>
 	/// <param name="logger">Logger.</param>
+	/// <param name="log">Dedicated SponsorBlock file log.</param>
 	public SponsorBlockOrchestrator(
 		ISponsorBlockApiClient api,
 		ISponsorBlockStateStore store,
@@ -37,10 +39,11 @@ public sealed class SponsorBlockOrchestrator
 		IMediaSegmentWriter writer,
 		Func<PluginConfiguration> config,
 		TimeProvider time,
-		ILogger<SponsorBlockOrchestrator> logger)
+		ILogger<SponsorBlockOrchestrator> logger,
+		SponsorBlockLog log)
 		: this(api, store, scope, writer, config,
 			(filename, mode, pattern) => YouTubeIdExtractor.Extract(filename, mode, pattern),
-			time, logger)
+			time, logger, log)
 	{
 	}
 
@@ -52,7 +55,8 @@ public sealed class SponsorBlockOrchestrator
 		Func<PluginConfiguration> config,
 		Func<string, FileMatchingMode, string?, string?> extractVideoId,
 		TimeProvider time,
-		ILogger<SponsorBlockOrchestrator> logger)
+		ILogger<SponsorBlockOrchestrator> logger,
+		SponsorBlockLog log)
 	{
 		_api = api;
 		_store = store;
@@ -62,6 +66,7 @@ public sealed class SponsorBlockOrchestrator
 		_extractVideoId = extractVideoId;
 		_time = time;
 		_logger = logger;
+		_log = log;
 	}
 
 	/// <summary>
@@ -128,6 +133,7 @@ public sealed class SponsorBlockOrchestrator
 			}
 
 			_logger.LogInformation("SponsorBlock {VideoId}: NoData cooldown elapsed ({Age:F1}h) — rechecking ({Reason})", videoId, ageHours, reason);
+			_log.Information($"SponsorBlock {videoId}: NoData cooldown elapsed ({ageHours:F1}h) — rechecking ({reason})");
 		}
 
 		if (existing is { State: ItemState.HasData } && reason == ProcessReason.PlaybackStart && _writer.HasAny(itemId))
@@ -146,6 +152,7 @@ public sealed class SponsorBlockOrchestrator
 			}
 
 			_logger.LogInformation("SponsorBlock {VideoId}: Pending poll window elapsed ({Age:F1}h) — rechecking ({Reason})", videoId, ageHours, reason);
+			_log.Information($"SponsorBlock {videoId}: Pending poll window elapsed ({ageHours:F1}h) — rechecking ({reason})");
 		}
 
 		IReadOnlyList<SponsorBlockSegment> apiSegments;
@@ -155,6 +162,7 @@ public sealed class SponsorBlockOrchestrator
 			if (categories.Count == 0)
 			{
 				_logger.LogWarning("SponsorBlock {VideoId}: all categories disabled — skipping {Reason}", videoId, reason);
+				_log.Warning($"SponsorBlock {videoId}: all categories disabled — skipping {reason}");
 				return;
 			}
 
@@ -162,12 +170,14 @@ public sealed class SponsorBlockOrchestrator
 		}
 		catch (HttpRequestException ex)
 		{
-			_logger.LogWarning(ex, "Transient SponsorBlock fetch failure for {VideoId}; state unchanged", videoId);
+			_logger.LogWarning(ex, "SponsorBlock fetch failure for {VideoId}; state unchanged", videoId);
+			_log.Warning($"SponsorBlock fetch failure for {videoId}: {ex.Message}");
 			return;
 		}
 		catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
 		{
 			_logger.LogWarning(ex, "SponsorBlock fetch timeout for {VideoId}; state unchanged", videoId);
+			_log.Warning($"SponsorBlock fetch timeout for {videoId}");
 			return;
 		}
 
@@ -187,6 +197,7 @@ public sealed class SponsorBlockOrchestrator
 				new ItemStateRow(itemId, videoId, ItemState.HasData, firstSeen, now, dtos.Count),
 				ct).ConfigureAwait(false);
 			_logger.LogInformation("SponsorBlock {VideoId}: wrote {Count} segments ({Reason})", videoId, dtos.Count, reason);
+			_log.Information($"SponsorBlock {videoId}: wrote {dtos.Count} segments ({reason})");
 			return;
 		}
 
@@ -197,6 +208,7 @@ public sealed class SponsorBlockOrchestrator
 			new ItemStateRow(itemId, videoId, newState, firstSeen, now, 0),
 			ct).ConfigureAwait(false);
 		_logger.LogInformation("SponsorBlock {VideoId}: no segments found → {State} ({Reason})", videoId, newState, reason);
+		_log.Information($"SponsorBlock {videoId}: no segments found → {newState} ({reason})");
 	}
 
 	private static DateTimeOffset GetInitialFirstSeen(ProcessReason reason, DateTime itemDateCreated, DateTimeOffset now)

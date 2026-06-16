@@ -25,6 +25,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 	/// <inheritdoc />
 	public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
 	{
+		serviceCollection.AddSingleton<SponsorBlockLog>(sp =>
+			new SponsorBlockLog(
+				sp.GetRequiredService<IApplicationPaths>(),
+				TimeProvider.System));
+
 		serviceCollection.AddSingleton<SponsorBlockApiClient>();
 		serviceCollection.AddSingleton<ISponsorBlockApiClient>(sp => sp.GetRequiredService<SponsorBlockApiClient>());
 
@@ -56,7 +61,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 				sp.GetRequiredService<IMediaSegmentWriter>(),
 				() => Plugin.Instance!.Configuration,
 				TimeProvider.System,
-				sp.GetRequiredService<ILogger<SponsorBlockOrchestrator>>()));
+				sp.GetRequiredService<ILogger<SponsorBlockOrchestrator>>(),
+				sp.GetRequiredService<SponsorBlockLog>()));
 
 		serviceCollection.AddSingleton<IResetService>(sp =>
 			new ResetService(
@@ -70,7 +76,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 				sp.GetRequiredService<ILibraryManager>(),
 				sp.GetRequiredService<SponsorBlockOrchestrator>(),
 				() => Plugin.Instance!.Configuration,
-				sp.GetRequiredService<ILogger<ForceScanService>>()));
+				sp.GetRequiredService<ILogger<ForceScanService>>(),
+				sp.GetRequiredService<SponsorBlockLog>()));
 
 		serviceCollection.AddHostedService<ItemAddedHostedService>();
 		serviceCollection.AddHostedService<PlaybackStartHostedService>();

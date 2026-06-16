@@ -85,7 +85,8 @@ public sealed class ForceScanServiceTests
 		MakeOrchestrator(config),
 		() => config,
 		_ => scoped,
-		NullLogger<ForceScanService>.Instance);
+		NullLogger<ForceScanService>.Instance,
+		TestLog.Create());
 
 	private SponsorBlockOrchestrator MakeOrchestrator(PluginConfiguration config) => new(
 		_api,
@@ -93,8 +94,10 @@ public sealed class ForceScanServiceTests
 		_scope,
 		_writer,
 		() => config,
+		(_, _, _) => "abcdefghijk",
 		TimeProvider.System,
-		NullLogger<SponsorBlockOrchestrator>.Instance);
+		NullLogger<SponsorBlockOrchestrator>.Instance,
+		TestLog.Create());
 
 	private sealed class TestVideo : Video
 	{
