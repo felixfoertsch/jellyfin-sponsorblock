@@ -11,7 +11,7 @@
 				"changelog": "Fix EnumerateScoped to discover Episode and Movie items, not just standalone Video. YouTube libraries imported as TV Shows store items as Episode type, which BaseItemKind.Video did not match.",
 				"targetAbi": "10.11.0.0",
 				"sourceUrl": "https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/download/v1.1.8.0/jellyfin-plugin-sponsorblock-1.1.8.0.zip",
-				"checksum": "",
+				"checksum": "72ab5621ad460cd7f2a21c8a3179fbc1",
 				"timestamp": "2026-06-16T00:00:00Z"
 			},
 			{
