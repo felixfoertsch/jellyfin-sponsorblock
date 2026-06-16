@@ -50,6 +50,7 @@ public sealed class ItemAddedHostedService : IHostedService
 			return;
 		}
 
+		_logger.LogDebug("SponsorBlock trigger: ItemAdded {ItemName} ({ItemId})", video.Name, video.Id);
 		_ = Task.Run(async () =>
 		{
 			try

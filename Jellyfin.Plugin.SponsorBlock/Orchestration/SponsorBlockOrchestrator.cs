@@ -75,19 +75,23 @@ public sealed class SponsorBlockOrchestrator
 	{
 		if (!_scope.IsInScope(item))
 		{
+			_logger.LogDebug("SponsorBlock: skipping {ItemName} ({ItemId}) — not in configured library scope", item.Name, item.Id);
 			return;
 		}
 
 		var path = item.Path;
 		if (string.IsNullOrEmpty(path))
 		{
+			_logger.LogDebug("SponsorBlock: skipping {ItemId} — no filesystem path", item.Id);
 			return;
 		}
 
 		var config = _config();
-		var videoId = _extractVideoId(Path.GetFileName(path), config.FileMatchingMode, config.CustomRegexPattern);
+		var filename = Path.GetFileName(path);
+		var videoId = _extractVideoId(filename, config.FileMatchingMode, config.CustomRegexPattern);
 		if (videoId is null)
 		{
+			_logger.LogDebug("SponsorBlock: skipping {ItemName} ({ItemId}) — could not extract YouTube ID from filename \"{Filename}\"", item.Name, item.Id, filename);
 			return;
 		}
 
@@ -119,12 +123,16 @@ public sealed class SponsorBlockOrchestrator
 			var ageHours = (now - existing.LastFetchAt).TotalHours;
 			if (ageHours < config.PendingSanityHours)
 			{
+				_logger.LogDebug("SponsorBlock {VideoId}: NoData cooldown ({Age:F1}h of {Window}h) — skipping {Reason}", videoId, ageHours, config.PendingSanityHours, reason);
 				return;
 			}
+
+			_logger.LogInformation("SponsorBlock {VideoId}: NoData cooldown elapsed ({Age:F1}h) — rechecking ({Reason})", videoId, ageHours, reason);
 		}
 
 		if (existing is { State: ItemState.HasData } && reason == ProcessReason.PlaybackStart && _writer.HasAny(itemId))
 		{
+			_logger.LogDebug("SponsorBlock {VideoId}: segments already exist in Jellyfin — skipping {Reason}", videoId, reason);
 			return;
 		}
 
@@ -133,8 +141,11 @@ public sealed class SponsorBlockOrchestrator
 			var ageHours = (now - existing.FirstSeenAt).TotalHours;
 			if (ageHours < config.PlaybackPollHours)
 			{
+				_logger.LogDebug("SponsorBlock {VideoId}: Pending poll window ({Age:F1}h of {Window}h) — skipping {Reason}", videoId, ageHours, config.PlaybackPollHours, reason);
 				return;
 			}
+
+			_logger.LogInformation("SponsorBlock {VideoId}: Pending poll window elapsed ({Age:F1}h) — rechecking ({Reason})", videoId, ageHours, reason);
 		}
 
 		IReadOnlyList<SponsorBlockSegment> apiSegments;
@@ -143,6 +154,7 @@ public sealed class SponsorBlockOrchestrator
 			var categories = CategoryMapping.GetEnabledCategories(config.GetCategorySettings());
 			if (categories.Count == 0)
 			{
+				_logger.LogWarning("SponsorBlock {VideoId}: all categories disabled — skipping {Reason}", videoId, reason);
 				return;
 			}
 
@@ -174,6 +186,7 @@ public sealed class SponsorBlockOrchestrator
 			await _store.UpsertAsync(
 				new ItemStateRow(itemId, videoId, ItemState.HasData, firstSeen, now, dtos.Count),
 				ct).ConfigureAwait(false);
+			_logger.LogInformation("SponsorBlock {VideoId}: wrote {Count} segments ({Reason})", videoId, dtos.Count, reason);
 			return;
 		}
 
@@ -183,6 +196,7 @@ public sealed class SponsorBlockOrchestrator
 		await _store.UpsertAsync(
 			new ItemStateRow(itemId, videoId, newState, firstSeen, now, 0),
 			ct).ConfigureAwait(false);
+		_logger.LogInformation("SponsorBlock {VideoId}: no segments found → {State} ({Reason})", videoId, newState, reason);
 	}
 
 	private static DateTimeOffset GetInitialFirstSeen(ProcessReason reason, DateTime itemDateCreated, DateTimeOffset now)

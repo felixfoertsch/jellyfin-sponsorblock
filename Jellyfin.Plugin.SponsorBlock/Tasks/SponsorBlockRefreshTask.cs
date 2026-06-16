@@ -107,6 +107,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		var activeIds = rows.Select(row => row.ItemId).ToHashSet();
 		var oldVideosWithoutActiveRows = GetOldScopedVideosWithoutActiveRows(config, activeIds).ToList();
 		var total = rows.Count + oldVideosWithoutActiveRows.Count;
+		_logger.LogInformation("SponsorBlock daily refresh: {ActiveRows} active rows, {OldVideos} old scoped videos discovered — {Total} total to process", rows.Count, oldVideosWithoutActiveRows.Count, total);
 		if (total == 0)
 		{
 			progress.Report(100);
@@ -166,6 +167,8 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 			progress.Report(100.0 * processed / total);
 			await DelayIfConfiguredAsync(config, cancellationToken).ConfigureAwait(false);
 		}
+
+		_logger.LogInformation("SponsorBlock daily refresh complete: {Total} items processed", total);
 	}
 
 	private IEnumerable<Video> GetOldScopedVideosWithoutActiveRows(PluginConfiguration config, HashSet<Guid> activeIds)

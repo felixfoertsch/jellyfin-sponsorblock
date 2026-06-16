@@ -104,7 +104,9 @@ public sealed class ForceScanService : IForceScanService
 		}
 
 		var count = 0;
-		foreach (var video in _scopedVideos(enabled))
+		var videos = _scopedVideos(enabled).ToList();
+		_logger.LogInformation("SponsorBlock force scan starting: {Count} items in scoped libraries", videos.Count);
+		foreach (var video in videos)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			try

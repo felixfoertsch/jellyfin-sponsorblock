@@ -48,6 +48,7 @@ public sealed class PlaybackStartHostedService : IHostedService
 	{
 		if (e.Item is not Video video)
 		{
+			_logger.LogDebug("SponsorBlock trigger: PlaybackStart for non-Video item {ItemId} ({Type}) — skipping", e.Item.Id, e.Item.GetType().Name);
 			return;
 		}
 
