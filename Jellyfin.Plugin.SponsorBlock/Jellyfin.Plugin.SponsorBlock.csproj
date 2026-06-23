@@ -6,8 +6,8 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<RootNamespace>Jellyfin.Plugin.SponsorBlock</RootNamespace>
-		<AssemblyVersion>1.1.10.0</AssemblyVersion>
-		<FileVersion>1.1.10.0</FileVersion>
+		<AssemblyVersion>1.1.11.0</AssemblyVersion>
+		<FileVersion>1.1.11.0</FileVersion>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Jellyfin.Controller" Version="10.*-*" />

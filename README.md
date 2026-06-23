@@ -4,12 +4,13 @@ A Jellyfin plugin that skips sponsored segments in YouTube videos using [Sponsor
 
 If you download YouTube videos and watch them in Jellyfin, you lose the SponsorBlock browser extension. This plugin brings it back: it fetches community-submitted segment data from the SponsorBlock API and feeds it into Jellyfin's native Media Segments system, so your players auto-skip sponsors, self-promotion, intros, outros, and more.
 
-Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names files by YouTube ID), but has no dependency on it. Any YouTube library works as long as the video ID is in the filename.
+Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names files by YouTube ID and populates the publish date), but has no dependency on it. Any YouTube library works as long as the video ID is in the filename.
 
 ## Requirements
 
 - Jellyfin 10.11+
 - YouTube videos with the 11-character video ID in the filename (e.g., `dQw4w9WgXcQ.mp4`)
+- **YouTube publish date** set in Jellyfin's `PremiereDate` metadata field. This is required for convergence-based polling to work — the plugin uses the publish date to determine when SponsorBlock data has converged and a video no longer needs to be polled. [TubeArchivist](https://www.tubearchivist.com/) populates this automatically. If your import tool does not set `PremiereDate`, the age-gate is skipped and videos are polled indefinitely via the consecutive-unchanged counter only.
 
 ## Installation
 
@@ -24,7 +25,7 @@ Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names fi
 ### Manual installation
 
 1. Download `jellyfin-plugin-sponsorblock-<version>.zip` from the [latest release](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases)
-2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_1.1.7.1`)
+2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_1.1.11.0`)
 3. Restart Jellyfin
 
 ## Setup
@@ -35,7 +36,7 @@ Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names fi
 4. Save
 
 That's it for new videos — the plugin reacts to library and playback events automatically.
-For an existing archive, the daily refresh discovers selected-library items older than the sanity-check window. Use **Force scan all selected libraries** on the plugin config page when you want the backfill to start immediately.
+For an existing archive, the daily refresh discovers selected-library items and fetches their segments. Use **Force scan all selected libraries** on the plugin config page when you want the backfill to start immediately.
 
 Each viewer can still tune skip vs. ask-to-skip behavior in **Settings → Playback → Media Segments** on their own device (Jellyfin stores that preference in the browser's local storage).
 
@@ -47,17 +48,26 @@ The plugin is event-driven for normal operation.
 |---|---|
 | **Item added** to a scoped library | Fetch SponsorBlock data once, immediately. |
 | **Playback starts** on a scoped item | If the item still has no data after 24h (since first seen), re-fetch before playback continues. |
-| **Daily refresh task** (06:00 by default) | Re-fetch every tracked item, discover selected-library items older than the sanity-check window, and recheck cooled-down `NoData` items. |
+| **Daily refresh task** (06:00 by default) | Re-fetch every tracked item, discover untracked scoped videos, and recheck cooled-down `NoData` items. Items that have converged are frozen as `Done` and excluded from future scans. |
 | **Force scan all** | One-shot backfill for existing archives. Walks every video in selected libraries once. |
 | **Item removed** | Drop the item's state row and any segments owned by this plugin. |
 
-Every item passes through a small state machine stored in SQLite:
+Every item passes through a state machine stored in SQLite:
 
 - **Pending** — fetched at least once, no segments returned yet. Re-fetched on playback after the first 24h, and at the daily refresh.
-- **HasData** — segments are stored. The daily refresh keeps them current.
-- **NoData** — at the 48h mark, an item that has produced nothing enters a cooldown. Playback and the daily refresh recheck it after the same interval, so later community submissions can still be picked up.
+- **HasData** — segments are stored. The daily refresh keeps them current until convergence.
+- **NoData** — at the 48h mark, an item that has produced nothing enters a cooldown. The daily refresh rechecks it after the same interval, so later community submissions can still be picked up.
+- **Done** — terminal state. SponsorBlock data has converged; the item is no longer polled. Segments in Jellyfin are frozen. Reversible only via the Reset button.
 
-This model assumes SponsorBlock data converges within ~24h of a video being released. Items uploaded mid-day still get a real shot at picking up segments by the time you actually watch them.
+### Convergence: when does an item stop being polled?
+
+Two signals determine convergence:
+
+1. **Release age gate** — if the video's YouTube publish date (`PremiereDate`) is older than 30 days, the item is fetched one final time and frozen as `Done`. SponsorBlock data is crowdsourced and converges within weeks of release; a month-old video will not gain new segments.
+
+2. **Consecutive-unchanged counter** — for videos younger than 30 days, every daily fetch compares the current segment set against the previous one (by segment UUID hash). If the data hasn't changed for 5 consecutive daily checks, the item is marked `Done`. Any change resets the counter to 0.
+
+If `PremiereDate` is not set (e.g. your import tool doesn't populate it), the age gate is skipped. The item still converges via the consecutive-unchanged counter, but the first 5 days of polling always happen regardless of video age.
 
 ## File matching
 
@@ -93,16 +103,18 @@ Defaults are sensible — most users never need to touch these.
 | Playback re-fetch window (h) | `24` | How long after first seeing an item to keep re-fetching on every playback. |
 | Sanity-check window (h) | `48` | After this long with no data, the item enters `NoData` cooldown and is rechecked after the same interval. |
 | Daily-scan request delay (ms) | `200` | Inter-request pause during the daily refresh to be a good citizen of the public SponsorBlock API. |
+| Release age cutoff (days) | `30` | Videos whose YouTube publish date is older than this are fetched once and frozen as `Done`. |
+| Consecutive unchanged threshold | `5` | Number of daily fetches with unchanged segment data before an item is marked `Done`. |
 
 ## Force scan
 
-The plugin config page has a **Force scan all selected libraries** button. Use it after enabling the plugin for an existing archive if you do not want to wait for the daily refresh. It starts a background scan over all selected-library videos, creates tracking rows, and lets the normal 48h state machine decide whether each item has SponsorBlock data.
+The plugin config page has a **Force scan all selected libraries** button. Use it after enabling the plugin for an existing archive if you do not want to wait for the daily refresh. It starts a background scan over all selected-library videos, creates tracking rows, and lets the state machine decide convergence.
 
 The endpoint is `POST /Plugins/SponsorBlock/ScanAll` (admin only). The current status is available at `GET /Plugins/SponsorBlock/ScanAll`.
 
 ## Reset
 
-The plugin config page has a **Reset** button that wipes the SponsorBlock state and removes every segment owned by this plugin for items in the configured libraries. The next playback re-fetches from scratch; the daily refresh also re-fetches once the item is older than the sanity-check window.
+The plugin config page has a **Reset** button that wipes the SponsorBlock state and removes every segment owned by this plugin for items in the configured libraries. All items return to an untracked state — the next playback or daily scan re-fetches from scratch, and convergence starts over.
 
 Use this when you want to wipe local state and force a clean re-fetch, for example after changing file matching or category settings.
 
@@ -113,10 +125,10 @@ The endpoint is `POST /Plugins/SponsorBlock/Reset` (admin only).
 ```bash
 dotnet build
 dotnet test
-./scripts/package-release.sh 1.1.7.1
+./scripts/package-release.sh 1.1.11.0
 ```
 
-The plugin DLL is at `Jellyfin.Plugin.SponsorBlock/bin/Debug/net9.0/Jellyfin.Plugin.SponsorBlock.dll`.
+The plugin DLL is at `Jellyfin.Plugin.SponsorBlock/bin/Release/net9.0/Jellyfin.Plugin.SponsorBlock.dll`.
 Release zips are written to `artifacts/` and intentionally contain only `Jellyfin.Plugin.SponsorBlock.dll`; Jellyfin provides the framework dependencies at runtime.
 
 ## License

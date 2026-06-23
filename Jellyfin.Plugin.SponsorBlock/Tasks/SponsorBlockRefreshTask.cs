@@ -9,8 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.SponsorBlock.Tasks;
 
 /// <summary>
-/// Daily refresh task: walks all Pending + HasData rows, then discovers old scoped videos that
-/// do not have active rows yet. Drops orphan rows whose item no longer exists in the library.
+/// Daily refresh task: reconciles known items (Phase 1) and discovers untracked scoped videos (Phase 2).
+/// All fetch/skip/cooldown/age-gate logic lives in <see cref="SponsorBlockOrchestrator"/>; this task is a pure dispatcher.
 /// </summary>
 public sealed class SponsorBlockRefreshTask : IScheduledTask
 {
@@ -20,17 +20,10 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	private readonly IMediaSegmentWriter _writer;
 	private readonly Func<PluginConfiguration> _configAccessor;
 	private readonly Func<Guid[], IEnumerable<Video>> _scopedVideos;
-	private readonly TimeProvider _time;
 	private readonly ILogger<SponsorBlockRefreshTask> _logger;
 	private readonly SponsorBlockLog _log;
 
 	/// <summary>Initializes the scheduled task.</summary>
-	/// <param name="store">Per-item state store.</param>
-	/// <param name="libraryManager">Jellyfin library manager.</param>
-	/// <param name="orchestrator">Orchestrator instance.</param>
-	/// <param name="writer">Wrapper around Jellyfin media segment manager.</param>
-	/// <param name="logger">Logger.</param>
-	/// <param name="log">Dedicated SponsorBlock file log.</param>
 	public SponsorBlockRefreshTask(
 		ISponsorBlockStateStore store,
 		ILibraryManager libraryManager,
@@ -45,7 +38,6 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 			writer,
 			() => Plugin.Instance?.Configuration ?? new PluginConfiguration(),
 			ids => EnumerateScoped(libraryManager, ids),
-			TimeProvider.System,
 			logger,
 			log)
 	{
@@ -58,7 +50,6 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		IMediaSegmentWriter writer,
 		Func<PluginConfiguration> configAccessor,
 		Func<Guid[], IEnumerable<Video>> scopedVideos,
-		TimeProvider time,
 		ILogger<SponsorBlockRefreshTask> logger,
 		SponsorBlockLog log)
 	{
@@ -68,7 +59,6 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		_writer = writer;
 		_configAccessor = configAccessor;
 		_scopedVideos = scopedVideos;
-		_time = time;
 		_logger = logger;
 		_log = log;
 	}
@@ -80,7 +70,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	public string Key => "SponsorBlockRefresh";
 
 	/// <inheritdoc />
-	public string Description => "Refreshes SponsorBlock segments for tracked items, discovers old scoped items, and runs the 48-hour sanity check.";
+	public string Description => "Refreshes SponsorBlock segments for tracked items and discovers untracked scoped videos.";
 
 	/// <inheritdoc />
 	public string Category => "SponsorBlock";
@@ -104,17 +94,24 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 	{
 		var config = _configAccessor();
 
+		// ── Phase 1: Reconcile known items (Pending + HasData + NoData) ──
 		var rows = new List<ItemStateRow>();
 		await foreach (var row in _store.GetActiveAsync(cancellationToken).ConfigureAwait(false))
 		{
 			rows.Add(row);
 		}
 
-		var activeIds = rows.Select(row => row.ItemId).ToHashSet();
-		var oldVideosWithoutActiveRows = GetOldScopedVideosWithoutActiveRows(config, activeIds).ToList();
-		var total = rows.Count + oldVideosWithoutActiveRows.Count;
-		_logger.LogInformation("SponsorBlock daily refresh: {ActiveRows} active rows, {OldVideos} old scoped videos discovered — {Total} total to process", rows.Count, oldVideosWithoutActiveRows.Count, total);
-		_log.Information($"Daily refresh: {rows.Count} active rows, {oldVideosWithoutActiveRows.Count} old scoped videos — {total} total to process");
+		// Load ALL row IDs for Phase 2 filtering
+		var knownIds = new HashSet<Guid>();
+		await foreach (var id in _store.GetAllItemIdsAsync(cancellationToken).ConfigureAwait(false))
+		{
+			knownIds.Add(id);
+		}
+
+		var oldVideos = GetUntrackedScopedVideos(config, knownIds);
+		var total = rows.Count + oldVideos.Count;
+		_logger.LogInformation("SponsorBlock daily refresh: {ActiveRows} active rows, {Untracked} untracked videos — {Total} total", rows.Count, oldVideos.Count, total);
+		_log.Information($"Daily refresh: {rows.Count} active rows, {oldVideos.Count} untracked videos — {total} total");
 		if (total == 0)
 		{
 			progress.Report(100);
@@ -158,7 +155,8 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 			await DelayIfConfiguredAsync(config, cancellationToken).ConfigureAwait(false);
 		}
 
-		foreach (var video in oldVideosWithoutActiveRows)
+		// ── Phase 2: Discover untracked scoped videos ──
+		foreach (var video in oldVideos)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
 			try
@@ -167,7 +165,7 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, "Daily refresh failed for old scoped item {ItemId}", video.Id);
+				_logger.LogError(ex, "Daily refresh failed for untracked item {ItemId}", video.Id);
 			}
 
 			processed++;
@@ -179,39 +177,17 @@ public sealed class SponsorBlockRefreshTask : IScheduledTask
 		_log.Information($"Daily refresh complete: {total} items processed");
 	}
 
-	private IEnumerable<Video> GetOldScopedVideosWithoutActiveRows(PluginConfiguration config, HashSet<Guid> activeIds)
+	private List<Video> GetUntrackedScopedVideos(PluginConfiguration config, HashSet<Guid> knownIds)
 	{
 		var enabled = config.EnabledLibraryIds;
 		if (enabled.Length == 0)
 		{
-			yield break;
+			return [];
 		}
 
-		var cutoff = _time.GetUtcNow() - TimeSpan.FromHours(config.PendingSanityHours);
-		foreach (var video in _scopedVideos(enabled))
-		{
-			if (activeIds.Contains(video.Id))
-			{
-				continue;
-			}
-
-			if (ToUtc(video.DateCreated) > cutoff)
-			{
-				continue;
-			}
-
-			yield return video;
-		}
-	}
-
-	private static DateTimeOffset ToUtc(DateTime value)
-	{
-		if (value.Kind == DateTimeKind.Unspecified)
-		{
-			return new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc));
-		}
-
-		return new DateTimeOffset(value.ToUniversalTime());
+		return _scopedVideos(enabled)
+			.Where(v => !knownIds.Contains(v.Id))
+			.ToList();
 	}
 
 	private static async Task DelayIfConfiguredAsync(PluginConfiguration config, CancellationToken cancellationToken)

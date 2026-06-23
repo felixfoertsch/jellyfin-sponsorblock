@@ -88,6 +88,19 @@ public class PluginConfiguration : BasePluginConfiguration
 	public int RequestDelayMilliseconds { get; set; } = 200;
 
 	/// <summary>
+	/// Gets or sets the age (in days since YouTube premiere/publish date) at which
+	/// an item is fetched one final time and frozen as Done. Videos older than this
+	/// are assumed to have converged SponsorBlock data.
+	/// </summary>
+	public int ReleaseAgeCutoffDays { get; set; } = 30;
+
+	/// <summary>
+	/// Gets or sets how many consecutive daily fetches must return unchanged segment
+	/// data before a young item is marked Done. Reset to 0 on any change.
+	/// </summary>
+	public int ConsecutiveUnchangedThreshold { get; set; } = 5;
+
+	/// <summary>
 	/// Returns a dictionary of category name to enabled for use with the API.
 	/// </summary>
 	/// <returns>Category settings dictionary.</returns>

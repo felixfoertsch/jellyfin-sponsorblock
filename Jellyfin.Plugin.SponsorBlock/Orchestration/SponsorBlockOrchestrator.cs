@@ -24,14 +24,6 @@ public sealed class SponsorBlockOrchestrator
 	private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _itemLocks = new();
 
 	/// <summary>Production constructor (uses static <see cref="YouTubeIdExtractor"/>).</summary>
-	/// <param name="api">SponsorBlock API client.</param>
-	/// <param name="store">Per-item state store.</param>
-	/// <param name="scope">Library scope policy.</param>
-	/// <param name="writer">Wrapper around Jellyfin media segment manager.</param>
-	/// <param name="config">Returns the current plugin configuration.</param>
-	/// <param name="time">Time provider (use <see cref="TimeProvider.System"/> in production).</param>
-	/// <param name="logger">Logger.</param>
-	/// <param name="log">Dedicated SponsorBlock file log.</param>
 	public SponsorBlockOrchestrator(
 		ISponsorBlockApiClient api,
 		ISponsorBlockStateStore store,
@@ -73,9 +65,6 @@ public sealed class SponsorBlockOrchestrator
 	/// Process one item under the given trigger. Implements the decision table from the spec.
 	/// Swallows transient HTTP failures (logs warning, leaves state untouched).
 	/// </summary>
-	/// <param name="item">Item to process.</param>
-	/// <param name="reason">Why this call is being made.</param>
-	/// <param name="cancellationToken">Cancellation token.</param>
 	public async Task ProcessAsync(BaseItem item, ProcessReason reason, CancellationToken cancellationToken)
 	{
 		if (!_scope.IsInScope(item))
@@ -104,7 +93,7 @@ public sealed class SponsorBlockOrchestrator
 		await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
-			await ProcessLockedAsync(item.Id, item.DateCreated, videoId, reason, config, cancellationToken).ConfigureAwait(false);
+			await ProcessLockedAsync(item.Id, item.PremiereDate, item.DateCreated, videoId, reason, config, cancellationToken).ConfigureAwait(false);
 		}
 		finally
 		{
@@ -114,6 +103,7 @@ public sealed class SponsorBlockOrchestrator
 
 	private async Task ProcessLockedAsync(
 		Guid itemId,
+		DateTime? premiereDate,
 		DateTime itemDateCreated,
 		string videoId,
 		ProcessReason reason,
@@ -122,6 +112,12 @@ public sealed class SponsorBlockOrchestrator
 	{
 		var existing = await _store.GetAsync(itemId, ct).ConfigureAwait(false);
 		var now = _time.GetUtcNow();
+
+		if (existing is { State: ItemState.Done })
+		{
+			_logger.LogDebug("SponsorBlock {VideoId}: Done — skipping {Reason}", videoId, reason);
+			return;
+		}
 
 		if (existing is { State: ItemState.NoData })
 		{
@@ -183,6 +179,39 @@ public sealed class SponsorBlockOrchestrator
 
 		var firstSeen = existing?.FirstSeenAt ?? GetInitialFirstSeen(reason, itemDateCreated, now);
 		var hasSegments = apiSegments.Any(s => s.ActionType == "skip");
+		var hash = SegmentHasher.Hash(apiSegments);
+		var unchanged = existing is not null && existing.LastSegmentHash == hash;
+		var consecutive = unchanged ? existing!.ConsecutiveUnchanged + 1 : 0;
+
+		var premiereOffset = premiereDate is not null
+			? now - ToUtc(premiereDate.Value)
+			: (TimeSpan?)null;
+		var isMature = premiereOffset is not null && premiereOffset.Value.TotalDays >= config.ReleaseAgeCutoffDays;
+
+		if (isMature)
+		{
+			if (hasSegments)
+			{
+				var dtos = SegmentMapper.Map(apiSegments, itemId);
+				await _writer.DeleteOwnedAsync(itemId, ct).ConfigureAwait(false);
+				foreach (var dto in dtos)
+				{
+					await _writer.CreateAsync(dto, ct).ConfigureAwait(false);
+				}
+			}
+			else
+			{
+				await _writer.DeleteOwnedAsync(itemId, ct).ConfigureAwait(false);
+			}
+
+			var skipCount = apiSegments.Count(s => s.ActionType == "skip");
+			await _store.UpsertAsync(
+				new ItemStateRow(itemId, videoId, ItemState.Done, firstSeen, now, hasSegments ? skipCount : 0, 0, hash),
+				ct).ConfigureAwait(false);
+			_logger.LogInformation("SponsorBlock {VideoId}: age gate → Done ({Reason})", videoId, reason);
+			_log.Information($"SponsorBlock {videoId}: age gate → Done ({reason})");
+			return;
+		}
 
 		if (hasSegments)
 		{
@@ -193,22 +222,25 @@ public sealed class SponsorBlockOrchestrator
 				await _writer.CreateAsync(dto, ct).ConfigureAwait(false);
 			}
 
+			var newState = consecutive >= config.ConsecutiveUnchangedThreshold ? ItemState.Done : ItemState.HasData;
 			await _store.UpsertAsync(
-				new ItemStateRow(itemId, videoId, ItemState.HasData, firstSeen, now, dtos.Count),
+				new ItemStateRow(itemId, videoId, newState, firstSeen, now, dtos.Count, consecutive, hash),
 				ct).ConfigureAwait(false);
-			_logger.LogInformation("SponsorBlock {VideoId}: wrote {Count} segments ({Reason})", videoId, dtos.Count, reason);
-			_log.Information($"SponsorBlock {videoId}: wrote {dtos.Count} segments ({reason})");
+			_logger.LogInformation("SponsorBlock {VideoId}: wrote {Count} segments → {State} ({Reason})", videoId, dtos.Count, newState, reason);
+			_log.Information($"SponsorBlock {videoId}: wrote {dtos.Count} segments → {newState} ({reason})");
 			return;
 		}
 
 		var sanityElapsed = (now - firstSeen).TotalHours >= config.PendingSanityHours;
-		var newState = sanityElapsed ? ItemState.NoData : ItemState.Pending;
+		var noDataState = sanityElapsed ? ItemState.NoData : ItemState.Pending;
+		var finalState = consecutive >= config.ConsecutiveUnchangedThreshold ? ItemState.Done : noDataState;
 
+		await _writer.DeleteOwnedAsync(itemId, ct).ConfigureAwait(false);
 		await _store.UpsertAsync(
-			new ItemStateRow(itemId, videoId, newState, firstSeen, now, 0),
+			new ItemStateRow(itemId, videoId, finalState, firstSeen, now, 0, consecutive, hash),
 			ct).ConfigureAwait(false);
-		_logger.LogInformation("SponsorBlock {VideoId}: no segments found → {State} ({Reason})", videoId, newState, reason);
-		_log.Information($"SponsorBlock {videoId}: no segments found → {newState} ({reason})");
+		_logger.LogInformation("SponsorBlock {VideoId}: no segments found → {State} ({Reason})", videoId, finalState, reason);
+		_log.Information($"SponsorBlock {videoId}: no segments found → {finalState} ({reason})");
 	}
 
 	private static DateTimeOffset GetInitialFirstSeen(ProcessReason reason, DateTime itemDateCreated, DateTimeOffset now)

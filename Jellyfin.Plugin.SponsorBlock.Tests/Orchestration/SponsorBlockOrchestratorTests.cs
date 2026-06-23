@@ -45,7 +45,7 @@ public class SponsorBlockOrchestratorTests
 	}
 
 	private static SponsorBlockSegment Seg(string category = "sponsor")
-		=> new() { Category = category, ActionType = "skip", Segment = [10.0, 20.0], UUID = "u" };
+		=> new() { Category = category, ActionType = "skip", Segment = [10.0, 20.0], UUID = "uuid-1" };
 
 	[Fact]
 	public async Task NoRow_FetchSucceedsWithSegments_InsertsHasData()
@@ -149,6 +149,25 @@ public class SponsorBlockOrchestratorTests
 	}
 
 	[Fact]
+	public async Task HasData_DailyScan_ApiReturnsEmpty_DeletesStaleSegmentsAndPromotesToNoData()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.HasData, segmentCount: 3, firstSeen: T0.AddHours(-50)));
+		_api.GetSegmentsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment>());
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _writer.Received(1).DeleteOwnedAsync(item.Id, Arg.Any<CancellationToken>());
+		await _writer.DidNotReceive().CreateAsync(Arg.Any<MediaSegmentDto>(), Arg.Any<CancellationToken>());
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.NoData && r.SegmentCount == 0),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
 	public async Task HasData_PlaybackStart_NoOps()
 	{
 		var item = FakeItem(Guid.NewGuid());
@@ -242,11 +261,195 @@ public class SponsorBlockOrchestratorTests
 		await _store.DidNotReceive().UpsertAsync(Arg.Any<ItemStateRow>(), Arg.Any<CancellationToken>());
 	}
 
+	// ── New tests for Done state, age gate, and consecutive counter ──
+
+	[Fact]
+	public async Task DoneState_AnyTrigger_NoOps()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.Done, segmentCount: 2));
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.PlaybackStart, CancellationToken.None);
+
+		await _api.DidNotReceive().GetSegmentsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+		await _store.DidNotReceive().UpsertAsync(Arg.Any<ItemStateRow>(), Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task YoungItem_FirstFetch_SegmentsFound_HasDataWithHash()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.DateTime;
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>()).Returns((ItemStateRow?)null);
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.ItemAdded, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.HasData && r.ConsecutiveUnchanged == 0 && !string.IsNullOrEmpty(r.LastSegmentHash)),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task YoungItem_SecondFetch_SameSegments_IncrementsCounter()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.DateTime;
+		_scope.IsInScope(item).Returns(true);
+		var hash = SegmentHasher.Hash(new List<SponsorBlockSegment> { Seg() });
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.HasData, segmentCount: 1, consecutiveUnchanged: 0, lastSegmentHash: hash));
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.HasData && r.ConsecutiveUnchanged == 1),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task YoungItem_FifthConsecutiveUnchanged_TransitionsToDone()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.DateTime;
+		_scope.IsInScope(item).Returns(true);
+		var hash = SegmentHasher.Hash(new List<SponsorBlockSegment> { Seg() });
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.HasData, segmentCount: 1, consecutiveUnchanged: 4, lastSegmentHash: hash));
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.Done && r.ConsecutiveUnchanged == 5),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task YoungItem_SegmentsChange_CounterResetsToZero()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.DateTime;
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.HasData, segmentCount: 1, consecutiveUnchanged: 3, lastSegmentHash: "stale-hash"));
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.HasData && r.ConsecutiveUnchanged == 0),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task AgeGate_OldPremiereDate_AnyState_TransitionsToDone()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.AddDays(-35).DateTime;
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.HasData, segmentCount: 1, consecutiveUnchanged: 2));
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.Done),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task AgeGate_NoPremiereDate_SkipsAgeGate_UsesYoungItemFlow()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = null;
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>()).Returns((ItemStateRow?)null);
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.ItemAdded, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.HasData),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task YoungNoData_EmptyResponseUnchanged_FiveTimes_TransitionsToDone()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.DateTime;
+		_scope.IsInScope(item).Returns(true);
+		var emptyHash = SegmentHasher.Hash(new List<SponsorBlockSegment>());
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.NoData, consecutiveUnchanged: 4, lastSegmentHash: emptyHash, firstSeen: T0.AddHours(-50), lastFetchAt: T0.AddHours(-50)));
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment>());
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.Done && r.ConsecutiveUnchanged == 5),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task YoungItem_FourUnchangedThenOneChanged_CounterResets_NotDone()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.DateTime;
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.HasData, segmentCount: 1, consecutiveUnchanged: 4, lastSegmentHash: "old-hash"));
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.HasData && r.ConsecutiveUnchanged == 0),
+			Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task DoneTransition_EmptyApi_DeletesStaleSegments()
+	{
+		var item = FakeItem(Guid.NewGuid());
+		item.PremiereDate = T0.AddDays(-35).DateTime;
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>())
+			.Returns(NewRow(item.Id, ItemState.HasData, segmentCount: 2));
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment>());
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.DailyScan, CancellationToken.None);
+
+		await _writer.Received(1).DeleteOwnedAsync(item.Id, Arg.Any<CancellationToken>());
+		await _writer.DidNotReceive().CreateAsync(Arg.Any<MediaSegmentDto>(), Arg.Any<CancellationToken>());
+		await _store.Received().UpsertAsync(
+			Arg.Is<ItemStateRow>(r => r.State == ItemState.Done && r.SegmentCount == 0),
+			Arg.Any<CancellationToken>());
+	}
+
 	private static ItemStateRow NewRow(
 		Guid itemId,
 		ItemState state,
 		int segmentCount = 0,
 		DateTimeOffset? firstSeen = null,
-		DateTimeOffset? lastFetchAt = null) =>
-		new(itemId, "abcdefghijk", state, firstSeen ?? T0, lastFetchAt ?? T0, segmentCount);
+		DateTimeOffset? lastFetchAt = null,
+		int consecutiveUnchanged = 0,
+		string lastSegmentHash = "") =>
+		new(itemId, "abcdefghijk", state, firstSeen ?? T0, lastFetchAt ?? T0, segmentCount, consecutiveUnchanged, lastSegmentHash);
 }

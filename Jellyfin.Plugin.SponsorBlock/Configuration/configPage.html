@@ -123,6 +123,16 @@
 						<input id="RequestDelayMilliseconds" type="number" min="0" is="emby-input" />
 						<div class="fieldDescription">Delay between SponsorBlock API requests during the daily scan to avoid rate-limiting.</div>
 					</div>
+					<div class="inputContainer">
+						<label class="inputLabel" for="ReleaseAgeCutoffDays">Release age cutoff (days)</label>
+						<input id="ReleaseAgeCutoffDays" type="number" min="1" is="emby-input" />
+						<div class="fieldDescription">Videos whose YouTube publish date is older than this are fetched once and frozen. Default: 30.</div>
+					</div>
+					<div class="inputContainer">
+						<label class="inputLabel" for="ConsecutiveUnchangedThreshold">Consecutive unchanged threshold</label>
+						<input id="ConsecutiveUnchangedThreshold" type="number" min="1" is="emby-input" />
+						<div class="fieldDescription">Number of daily fetches with unchanged data before an item is marked done. Default: 5.</div>
+					</div>
 				</details>
 
 				<div class="fieldDescription" style="margin-bottom: 1em;">
@@ -222,6 +232,8 @@
 						document.getElementById('PlaybackPollHours').value = config.PlaybackPollHours;
 						document.getElementById('PendingSanityHours').value = config.PendingSanityHours;
 						document.getElementById('RequestDelayMilliseconds').value = config.RequestDelayMilliseconds;
+						document.getElementById('ReleaseAgeCutoffDays').value = config.ReleaseAgeCutoffDays;
+						document.getElementById('ConsecutiveUnchangedThreshold').value = config.ConsecutiveUnchangedThreshold;
 						document.getElementById('Sponsor').checked = config.Sponsor;
 						document.getElementById('SelfPromo').checked = config.SelfPromo;
 						document.getElementById('Interaction').checked = config.Interaction;
@@ -245,6 +257,8 @@
 						config.PlaybackPollHours = parseInt(document.getElementById('PlaybackPollHours').value, 10);
 						config.PendingSanityHours = parseInt(document.getElementById('PendingSanityHours').value, 10);
 						config.RequestDelayMilliseconds = parseInt(document.getElementById('RequestDelayMilliseconds').value, 10);
+						config.ReleaseAgeCutoffDays = parseInt(document.getElementById('ReleaseAgeCutoffDays').value, 10);
+						config.ConsecutiveUnchangedThreshold = parseInt(document.getElementById('ConsecutiveUnchangedThreshold').value, 10);
 						config.EnabledLibraryIds = SponsorBlockConfig.collectSelectedLibraryIds();
 						config.Sponsor = document.getElementById('Sponsor').checked;
 						config.SelfPromo = document.getElementById('SelfPromo').checked;

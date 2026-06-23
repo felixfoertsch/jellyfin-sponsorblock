@@ -13,4 +13,7 @@ public enum ItemState
 
 	/// <summary>Sanity-checked at ≥ PendingSanityHours and still empty. Rechecked after the same cooldown.</summary>
 	NoData = 2,
+
+	/// <summary>Terminal: SponsorBlock data has converged. Excluded from all polling. Reversible only via reset.</summary>
+	Done = 3,
 }

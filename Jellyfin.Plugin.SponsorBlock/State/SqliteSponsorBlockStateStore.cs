@@ -10,6 +10,8 @@ namespace Jellyfin.Plugin.SponsorBlock.State;
 /// </summary>
 public sealed class SqliteSponsorBlockStateStore : ISponsorBlockStateStore, IDisposable
 {
+	private const int SchemaVersion = 2;
+
 	private readonly SqliteConnection _connection;
 	private readonly SemaphoreSlim _writeLock = new(1, 1);
 
@@ -30,26 +32,40 @@ public sealed class SqliteSponsorBlockStateStore : ISponsorBlockStateStore, IDis
 
 	private void EnsureSchema()
 	{
-		using var cmd = _connection.CreateCommand();
-		cmd.CommandText = @"
-			CREATE TABLE IF NOT EXISTS item_state (
-				item_id        BLOB PRIMARY KEY,
-				video_id       TEXT NOT NULL,
-				state          INTEGER NOT NULL,
-				first_seen_at  INTEGER NOT NULL,
-				last_fetch_at  INTEGER NOT NULL,
-				segment_count  INTEGER NOT NULL DEFAULT 0
-			);
-			CREATE INDEX IF NOT EXISTS idx_state ON item_state(state);
-			CREATE INDEX IF NOT EXISTS idx_first_seen ON item_state(first_seen_at);";
-		cmd.ExecuteNonQuery();
+		using var versionCmd = _connection.CreateCommand();
+		versionCmd.CommandText = "PRAGMA user_version";
+		var currentVersion = (long)(versionCmd.ExecuteScalar() ?? 0);
+
+		if (currentVersion != SchemaVersion)
+		{
+			using var dropCmd = _connection.CreateCommand();
+			dropCmd.CommandText = "DROP TABLE IF EXISTS item_state";
+			dropCmd.ExecuteNonQuery();
+
+			using var createCmd = _connection.CreateCommand();
+			createCmd.CommandText = @"
+				CREATE TABLE item_state (
+					item_id               BLOB PRIMARY KEY,
+					video_id              TEXT NOT NULL,
+					state                 INTEGER NOT NULL,
+					first_seen_at         INTEGER NOT NULL,
+					last_fetch_at         INTEGER NOT NULL,
+					segment_count         INTEGER NOT NULL DEFAULT 0,
+					consecutive_unchanged INTEGER NOT NULL DEFAULT 0,
+					last_segment_hash     TEXT NOT NULL DEFAULT ''
+				);
+				CREATE INDEX IF NOT EXISTS idx_state ON item_state(state);
+				CREATE INDEX IF NOT EXISTS idx_first_seen ON item_state(first_seen_at);
+				PRAGMA user_version = " + SchemaVersion + ";";
+			createCmd.ExecuteNonQuery();
+		}
 	}
 
 	/// <inheritdoc />
 	public async ValueTask<ItemStateRow?> GetAsync(Guid itemId, CancellationToken cancellationToken)
 	{
 		await using var cmd = _connection.CreateCommand();
-		cmd.CommandText = "SELECT video_id, state, first_seen_at, last_fetch_at, segment_count FROM item_state WHERE item_id = $id";
+		cmd.CommandText = "SELECT video_id, state, first_seen_at, last_fetch_at, segment_count, consecutive_unchanged, last_segment_hash FROM item_state WHERE item_id = $id";
 		cmd.Parameters.AddWithValue("$id", itemId.ToByteArray());
 
 		await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -64,7 +80,9 @@ public sealed class SqliteSponsorBlockStateStore : ISponsorBlockStateStore, IDis
 			State: (ItemState)reader.GetInt32(1),
 			FirstSeenAt: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
 			LastFetchAt: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(3)),
-			SegmentCount: reader.GetInt32(4));
+			SegmentCount: reader.GetInt32(4),
+			ConsecutiveUnchanged: reader.GetInt32(5),
+			LastSegmentHash: reader.GetString(6));
 	}
 
 	/// <inheritdoc />
@@ -75,20 +93,24 @@ public sealed class SqliteSponsorBlockStateStore : ISponsorBlockStateStore, IDis
 		{
 			await using var cmd = _connection.CreateCommand();
 			cmd.CommandText = @"
-				INSERT INTO item_state (item_id, video_id, state, first_seen_at, last_fetch_at, segment_count)
-				VALUES ($id, $vid, $st, $fs, $lf, $sc)
+				INSERT INTO item_state (item_id, video_id, state, first_seen_at, last_fetch_at, segment_count, consecutive_unchanged, last_segment_hash)
+				VALUES ($id, $vid, $st, $fs, $lf, $sc, $cu, $lh)
 				ON CONFLICT(item_id) DO UPDATE SET
-					video_id      = excluded.video_id,
-					state         = excluded.state,
-					first_seen_at = excluded.first_seen_at,
-					last_fetch_at = excluded.last_fetch_at,
-					segment_count = excluded.segment_count;";
+					video_id              = excluded.video_id,
+					state                 = excluded.state,
+					first_seen_at         = excluded.first_seen_at,
+					last_fetch_at         = excluded.last_fetch_at,
+					segment_count         = excluded.segment_count,
+					consecutive_unchanged = excluded.consecutive_unchanged,
+					last_segment_hash     = excluded.last_segment_hash;";
 			cmd.Parameters.AddWithValue("$id", row.ItemId.ToByteArray());
 			cmd.Parameters.AddWithValue("$vid", row.VideoId);
 			cmd.Parameters.AddWithValue("$st", (int)row.State);
 			cmd.Parameters.AddWithValue("$fs", row.FirstSeenAt.ToUnixTimeSeconds());
 			cmd.Parameters.AddWithValue("$lf", row.LastFetchAt.ToUnixTimeSeconds());
 			cmd.Parameters.AddWithValue("$sc", row.SegmentCount);
+			cmd.Parameters.AddWithValue("$cu", row.ConsecutiveUnchanged);
+			cmd.Parameters.AddWithValue("$lh", row.LastSegmentHash);
 			await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 		}
 		finally
@@ -120,9 +142,9 @@ public sealed class SqliteSponsorBlockStateStore : ISponsorBlockStateStore, IDis
 	{
 		await using var cmd = _connection.CreateCommand();
 		cmd.CommandText = @"
-			SELECT item_id, video_id, state, first_seen_at, last_fetch_at, segment_count
+			SELECT item_id, video_id, state, first_seen_at, last_fetch_at, segment_count, consecutive_unchanged, last_segment_hash
 			FROM item_state
-			WHERE state IN (0, 1)
+			WHERE state IN (0, 1, 2)
 			ORDER BY first_seen_at ASC";
 
 		await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -135,7 +157,24 @@ public sealed class SqliteSponsorBlockStateStore : ISponsorBlockStateStore, IDis
 				State: (ItemState)reader.GetInt32(2),
 				FirstSeenAt: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(3)),
 				LastFetchAt: DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(4)),
-				SegmentCount: reader.GetInt32(5));
+				SegmentCount: reader.GetInt32(5),
+				ConsecutiveUnchanged: reader.GetInt32(6),
+				LastSegmentHash: reader.GetString(7));
+		}
+	}
+
+	/// <inheritdoc />
+	public async IAsyncEnumerable<Guid> GetAllItemIdsAsync(
+		[EnumeratorCancellation] CancellationToken cancellationToken)
+	{
+		await using var cmd = _connection.CreateCommand();
+		cmd.CommandText = "SELECT item_id FROM item_state";
+
+		await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+		while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+		{
+			var idBytes = (byte[])reader.GetValue(0);
+			yield return new Guid(idBytes);
 		}
 	}
 

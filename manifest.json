@@ -7,6 +7,14 @@
 		"owner": "felixfoertsch",
 		"versions": [
 			{
+				"version": "1.1.11.0",
+				"changelog": "Add Done state with convergence-based polling. Videos older than 30 days (by YouTube publish date) are fetched once and frozen. Videos younger than 30 days are polled daily until segment data is unchanged for 5 consecutive checks, then frozen. Stale segments are now deleted when SponsorBlock data disappears. Daily scan task refactored to a clean two-phase dispatcher.",
+				"targetAbi": "10.11.0.0",
+				"sourceUrl": "https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/download/v1.1.11.0/jellyfin-plugin-sponsorblock-1.1.11.0.zip",
+				"checksum": "c93629e0df2b1eb04a9ae99bae65e7b1",
+				"timestamp": "2026-06-23T00:00:00Z"
+			},
+			{
 				"version": "1.1.10.0",
 				"changelog": "Add dedicated SponsorBlock log file (log_SponsorBlock_YYYYMMDD.log) in Jellyfin's log directory. All info/warning/error events now write to both the main server log and the dedicated file, so the plugin appears as a separate log entry in the Jellyfin dashboard.",
 				"targetAbi": "10.11.0.0",
