@@ -22,6 +22,7 @@ public sealed class SponsorBlockOrchestrator
 	private readonly ILogger<SponsorBlockOrchestrator> _logger;
 	private readonly SponsorBlockLog _log;
 	private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _itemLocks = new();
+	private readonly SemaphoreSlim _processingLock = new(1, 1);
 
 	/// <summary>Production constructor (uses static <see cref="YouTubeIdExtractor"/>).</summary>
 	public SponsorBlockOrchestrator(
@@ -93,7 +94,15 @@ public sealed class SponsorBlockOrchestrator
 		await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
 		try
 		{
-			await ProcessLockedAsync(item.Id, item.PremiereDate, item.DateCreated, videoId, reason, config, cancellationToken).ConfigureAwait(false);
+			await _processingLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+			try
+			{
+				await ProcessLockedAsync(item.Id, item.PremiereDate, item.DateCreated, videoId, reason, config, cancellationToken).ConfigureAwait(false);
+			}
+			finally
+			{
+				_processingLock.Release();
+			}
 		}
 		finally
 		{

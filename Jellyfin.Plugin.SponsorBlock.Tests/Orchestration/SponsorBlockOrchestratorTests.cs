@@ -65,6 +65,48 @@ public class SponsorBlockOrchestratorTests
 	}
 
 	[Fact]
+	public async Task ConcurrentDifferentItems_AreSerializedToAvoidJellyfinDatabaseWriteStorms()
+	{
+		var first = FakeItem(Guid.NewGuid());
+		var second = FakeItem(Guid.NewGuid());
+		_scope.IsInScope(Arg.Any<BaseItem>()).Returns(true);
+		_store.GetAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((ItemStateRow?)null);
+
+		var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var calls = 0;
+		var active = 0;
+		var maxActive = 0;
+
+		_api.GetSegmentsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(_ => GetSegmentsAsync());
+
+		var orchestrator = MakeOrchestrator();
+		var firstTask = orchestrator.ProcessAsync(first, ProcessReason.ItemAdded, CancellationToken.None);
+		var secondTask = orchestrator.ProcessAsync(second, ProcessReason.ItemAdded, CancellationToken.None);
+
+		await entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+		await Task.Delay(100);
+
+		Assert.Equal(1, calls);
+
+		release.SetResult();
+		await Task.WhenAll(firstTask, secondTask);
+		Assert.Equal(1, maxActive);
+
+		async Task<IReadOnlyList<SponsorBlockSegment>> GetSegmentsAsync()
+		{
+			var nowActive = Interlocked.Increment(ref active);
+			Interlocked.Increment(ref calls);
+			maxActive = Math.Max(maxActive, nowActive);
+			entered.TrySetResult();
+			await release.Task.ConfigureAwait(false);
+			Interlocked.Decrement(ref active);
+			return new List<SponsorBlockSegment> { Seg() };
+		}
+	}
+
+	[Fact]
 	public async Task NoRow_FetchSucceedsEmpty_InsertsPending()
 	{
 		var item = FakeItem(Guid.NewGuid());
