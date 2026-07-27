@@ -3,6 +3,7 @@
 
 # claude
 .claude/
+.worktrees/
 
 # .NET / Visual Studio
 artifacts/

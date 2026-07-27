@@ -7,6 +7,22 @@
 		"owner": "felixfoertsch",
 		"versions": [
 			{
+				"version": "2.0.0.0",
+				"changelog": "Add Jellyfin 12 support. Retarget to .NET 10 and Jellyfin Controller 12.0.0-rc3, implement the new media-segment cleanup contract, and preserve the event-driven SponsorBlock workflow without enabling the core library segment scan.",
+				"targetAbi": "12.0.0.0",
+				"sourceUrl": "https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/download/v2.0.0.0/jellyfin-plugin-sponsorblock-2.0.0.0.zip",
+				"checksum": "1f11eeee6c2ceda81bf4136a48410ee6",
+				"timestamp": "2026-07-27T00:00:00Z"
+			},
+			{
+				"version": "1.1.12.0",
+				"changelog": "Serialize SponsorBlock processing to avoid concurrent refresh and playback work for the same item. Bump the plugin version for local installation.",
+				"targetAbi": "10.11.0.0",
+				"sourceUrl": "https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/download/v1.1.12.0/jellyfin-plugin-sponsorblock-1.1.12.0.zip",
+				"checksum": "7727a9548136b7216938f70f68522480",
+				"timestamp": "2026-07-05T20:34:32Z"
+			},
+			{
 				"version": "1.1.11.0",
 				"changelog": "Add Done state with convergence-based polling. Videos older than 30 days (by YouTube publish date) are fetched once and frozen. Videos younger than 30 days are polled daily until segment data is unchanged for 5 consecutive checks, then frozen. Stale segments are now deleted when SponsorBlock data disappears. Daily scan task refactored to a clean two-phase dispatcher.",
 				"targetAbi": "10.11.0.0",

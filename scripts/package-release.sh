@@ -28,10 +28,11 @@ main() {
 	local zip_path="$output_dir/jellyfin-plugin-sponsorblock-$version.zip"
 	rm -f "$zip_path"
 
-	local dll_path="$root/Jellyfin.Plugin.SponsorBlock/bin/Release/net9.0/Jellyfin.Plugin.SponsorBlock.dll"
+	local dll_path="$root/Jellyfin.Plugin.SponsorBlock/bin/Release/net10.0/Jellyfin.Plugin.SponsorBlock.dll"
 	test -f "$dll_path"
+	touch -t 198001010000 "$dll_path"
 
-	zip -j "$zip_path" "$dll_path"
+	zip -X -j "$zip_path" "$dll_path"
 
 	local entry_count
 	entry_count="$(zipinfo -1 "$zip_path" | wc -l | tr -d ' ')"

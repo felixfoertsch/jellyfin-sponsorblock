@@ -8,7 +8,17 @@ Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names fi
 
 ## Requirements
 
-- Jellyfin 10.11+
+### Jellyfin compatibility
+
+| Jellyfin | SponsorBlock | Status |
+|---|---|---|
+| 12.x | `2.0.0.0` | Current release |
+| 10.11 | `1.1.12.0` | Last compatible release |
+
+SponsorBlock `2.0.0.0` requires Jellyfin 12 and is incompatible with older Jellyfin versions. Jellyfin 10.11 users must install [`v1.1.12.0`](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/tag/v1.1.12.0). The repository manifest keeps both versions available and lets Jellyfin select the matching ABI.
+
+Additional requirements:
+
 - YouTube videos with the 11-character video ID in the filename (e.g., `dQw4w9WgXcQ.mp4`)
 - **YouTube publish date** set in Jellyfin's `PremiereDate` metadata field. This is required for convergence-based polling to work — the plugin uses the publish date to determine when SponsorBlock data has converged and a video no longer needs to be polled. [TubeArchivist](https://www.tubearchivist.com/) populates this automatically. If your import tool does not set `PremiereDate`, the age-gate is skipped and videos are polled indefinitely via the consecutive-unchanged counter only.
 
@@ -24,8 +34,8 @@ Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names fi
 
 ### Manual installation
 
-1. Download `jellyfin-plugin-sponsorblock-<version>.zip` from the [latest release](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases)
-2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_1.1.11.0`)
+1. Download `jellyfin-plugin-sponsorblock-<version>.zip` from the [release matching your Jellyfin version](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases)
+2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_2.0.0.0`)
 3. Restart Jellyfin
 
 ## Setup
@@ -125,10 +135,10 @@ The endpoint is `POST /Plugins/SponsorBlock/Reset` (admin only).
 ```bash
 dotnet build
 dotnet test
-./scripts/package-release.sh 1.1.11.0
+./scripts/package-release.sh 2.0.0.0
 ```
 
-The plugin DLL is at `Jellyfin.Plugin.SponsorBlock/bin/Release/net9.0/Jellyfin.Plugin.SponsorBlock.dll`.
+The plugin DLL is at `Jellyfin.Plugin.SponsorBlock/bin/Release/net10.0/Jellyfin.Plugin.SponsorBlock.dll`.
 Release zips are written to `artifacts/` and intentionally contain only `Jellyfin.Plugin.SponsorBlock.dll`; Jellyfin provides the framework dependencies at runtime.
 
 ## License

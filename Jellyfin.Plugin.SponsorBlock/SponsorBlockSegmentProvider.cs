@@ -22,4 +22,7 @@ public sealed class SponsorBlockSegmentProvider : IMediaSegmentProvider
 	/// <inheritdoc />
 	public Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
 		=> Task.FromResult<IReadOnlyList<MediaSegmentDto>>(Array.Empty<MediaSegmentDto>());
+
+	/// <inheritdoc />
+	public Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken) => Task.CompletedTask;
 }

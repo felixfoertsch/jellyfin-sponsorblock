@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.SponsorBlock.Scanning;
 using Jellyfin.Plugin.SponsorBlock.Tasks;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -30,6 +31,19 @@ public class PluginServiceRegistratorTests
 
 		Assert.Contains(services, descriptor =>
 			descriptor.ServiceType == typeof(IForceScanService)
+			&& descriptor.Lifetime == ServiceLifetime.Singleton);
+	}
+
+	[Fact]
+	public void RegisterServices_RegistersSponsorBlockSegmentProviderAsSingleton()
+	{
+		var services = new ServiceCollection();
+
+		new PluginServiceRegistrator().RegisterServices(services, Substitute.For<IServerApplicationHost>());
+
+		Assert.Contains(services, descriptor =>
+			descriptor.ServiceType == typeof(IMediaSegmentProvider)
+			&& descriptor.ImplementationType == typeof(SponsorBlockSegmentProvider)
 			&& descriptor.Lifetime == ServiceLifetime.Singleton);
 	}
 }
