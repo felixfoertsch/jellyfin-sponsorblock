@@ -3,6 +3,7 @@ using Jellyfin.Plugin.SponsorBlock.Configuration;
 using Jellyfin.Plugin.SponsorBlock.Scoping;
 using Jellyfin.Plugin.SponsorBlock.State;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.SponsorBlock.Orchestration;
@@ -74,20 +75,33 @@ public sealed class SponsorBlockOrchestrator
 			return;
 		}
 
-		var path = item.Path;
-		if (string.IsNullOrEmpty(path))
-		{
-			_logger.LogDebug("SponsorBlock: skipping {ItemId} — no filesystem path", item.Id);
-			return;
-		}
-
 		var config = _config();
-		var filename = Path.GetFileName(path);
-		var videoId = _extractVideoId(filename, config.FileMatchingMode, config.CustomRegexPattern);
-		if (videoId is null)
+		string? videoId;
+		if (config.YouTubeIdSource == YouTubeIdSource.JellyfinMetadata)
 		{
-			_logger.LogDebug("SponsorBlock: skipping {ItemName} ({ItemId}) — could not extract YouTube ID from filename \"{Filename}\"", item.Name, item.Id, filename);
-			return;
+			videoId = YouTubeIdExtractor.Validate(item.GetProviderId("Youtube"));
+			if (videoId is null)
+			{
+				_logger.LogDebug("SponsorBlock: skipping {ItemName} ({ItemId}) — no valid Youtube provider ID in Jellyfin metadata", item.Name, item.Id);
+				return;
+			}
+		}
+		else
+		{
+			var path = item.Path;
+			if (string.IsNullOrEmpty(path))
+			{
+				_logger.LogDebug("SponsorBlock: skipping {ItemId} — no filesystem path", item.Id);
+				return;
+			}
+
+			var filename = Path.GetFileName(path);
+			videoId = _extractVideoId(filename, config.FileMatchingMode, config.CustomRegexPattern);
+			if (videoId is null)
+			{
+				_logger.LogDebug("SponsorBlock: skipping {ItemName} ({ItemId}) — could not extract YouTube ID from filename \"{Filename}\"", item.Name, item.Id, filename);
+				return;
+			}
 		}
 
 		var sem = _itemLocks.GetOrAdd(item.Id, _ => new SemaphoreSlim(1, 1));

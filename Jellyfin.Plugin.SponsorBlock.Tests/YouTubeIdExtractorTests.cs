@@ -5,6 +5,27 @@ namespace Jellyfin.Plugin.SponsorBlock.Tests;
 
 public class YouTubeIdExtractorTests
 {
+	[Fact]
+	public void Configuration_DefaultSource_IsFilename()
+	{
+		var config = new PluginConfiguration();
+
+		Assert.Equal(YouTubeIdSource.Filename, config.YouTubeIdSource);
+	}
+
+	[Theory]
+	[InlineData("dQw4w9WgXcQ", "dQw4w9WgXcQ")]
+	[InlineData("abc-_123Abc", "abc-_123Abc")]
+	[InlineData("short", null)]
+	[InlineData("toolong123456", null)]
+	[InlineData("invalid$id", null)]
+	[InlineData("", null)]
+	[InlineData(null, null)]
+	public void Validate_ReturnsOnlyExactYouTubeIds(string? value, string? expected)
+	{
+		Assert.Equal(expected, YouTubeIdExtractor.Validate(value));
+	}
+
 	[Theory]
 	[InlineData("4pG8_bWpmaE.mp4", "4pG8_bWpmaE")]
 	[InlineData("dQw4w9WgXcQ.mkv", "dQw4w9WgXcQ")]
@@ -33,6 +54,14 @@ public class YouTubeIdExtractorTests
 	{
 		var result = YouTubeIdExtractor.Extract(filename, FileMatchingMode.CustomRegex, pattern);
 		Assert.Equal(expectedId, result);
+	}
+
+	[Fact]
+	public void RegexMode_PreservesCustomCaptureWithoutExactIdValidation()
+	{
+		var result = YouTubeIdExtractor.Extract("video-[custom-value].mp4", FileMatchingMode.CustomRegex, @"\[([^]]+)\]");
+
+		Assert.Equal("custom-value", result);
 	}
 
 	[Theory]

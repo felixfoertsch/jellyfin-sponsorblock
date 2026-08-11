@@ -12,6 +12,14 @@ public static partial class YouTubeIdExtractor
 	private static partial Regex YouTubeIdPattern();
 
 	/// <summary>
+	/// Validates an exact YouTube video ID.
+	/// </summary>
+	/// <param name="value">Candidate value.</param>
+	/// <returns>The value when valid; otherwise, null.</returns>
+	public static string? Validate(string? value)
+		=> !string.IsNullOrEmpty(value) && YouTubeIdPattern().IsMatch(value) ? value : null;
+
+	/// <summary>
 	/// Extracts a YouTube video ID from a filename.
 	/// </summary>
 	/// <param name="filename">The filename including extension.</param>
@@ -36,7 +44,7 @@ public static partial class YouTubeIdExtractor
 	private static string? ExtractFromFilename(string filename)
 	{
 		var name = Path.GetFileNameWithoutExtension(filename);
-		return YouTubeIdPattern().IsMatch(name) ? name : null;
+		return Validate(name);
 	}
 
 	private static string? ExtractWithRegex(string filename, string? pattern)

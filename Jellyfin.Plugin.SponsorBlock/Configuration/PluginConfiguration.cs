@@ -8,6 +8,11 @@ namespace Jellyfin.Plugin.SponsorBlock.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
 	/// <summary>
+	/// Gets or sets the source used to resolve YouTube video IDs.
+	/// </summary>
+	public YouTubeIdSource YouTubeIdSource { get; set; } = YouTubeIdSource.Filename;
+
+	/// <summary>
 	/// Gets or sets the file matching mode.
 	/// </summary>
 	public FileMatchingMode FileMatchingMode { get; set; } = FileMatchingMode.YouTubeIdAsFilename;

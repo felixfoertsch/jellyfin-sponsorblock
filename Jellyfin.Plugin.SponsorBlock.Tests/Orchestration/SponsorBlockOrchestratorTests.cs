@@ -289,6 +289,70 @@ public class SponsorBlockOrchestratorTests
 	}
 
 	[Fact]
+	public async Task MetadataSource_UsesCaseInsensitiveYoutubeProviderId()
+	{
+		_config.YouTubeIdSource = YouTubeIdSource.JellyfinMetadata;
+		var item = FakeItem(Guid.NewGuid(), "/archive/descriptive-title.mp4");
+		item.ProviderIds["yOuTuBe"] = "dQw4w9WgXcQ";
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>()).Returns((ItemStateRow?)null);
+		_api.GetSegmentsAsync("dQw4w9WgXcQ", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.ItemAdded, CancellationToken.None);
+
+		await _api.Received(1).GetSegmentsAsync("dQw4w9WgXcQ", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+	}
+
+	[Theory]
+	[InlineData(null)]
+	[InlineData("")]
+	[InlineData("short")]
+	[InlineData("invalid$id")]
+	public async Task MetadataSource_InvalidOrMissingProviderId_Skips(string? providerId)
+	{
+		_config.YouTubeIdSource = YouTubeIdSource.JellyfinMetadata;
+		var item = FakeItem(Guid.NewGuid());
+		if (providerId is not null)
+		{
+			item.ProviderIds["Youtube"] = providerId;
+		}
+
+		_scope.IsInScope(item).Returns(true);
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.ItemAdded, CancellationToken.None);
+
+		await _api.DidNotReceive().GetSegmentsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task MetadataSource_DoesNotFallBackToValidFilename()
+	{
+		_config.YouTubeIdSource = YouTubeIdSource.JellyfinMetadata;
+		var item = FakeItem(Guid.NewGuid(), "/archive/dQw4w9WgXcQ.mp4");
+		_scope.IsInScope(item).Returns(true);
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.ItemAdded, CancellationToken.None);
+
+		await _api.DidNotReceive().GetSegmentsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
+	public async Task FilenameSource_DoesNotUseMetadata()
+	{
+		var item = FakeItem(Guid.NewGuid(), "/archive/descriptive-title.mp4");
+		item.ProviderIds["Youtube"] = "dQw4w9WgXcQ";
+		_scope.IsInScope(item).Returns(true);
+		_store.GetAsync(item.Id, Arg.Any<CancellationToken>()).Returns((ItemStateRow?)null);
+		_api.GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+			.Returns(new List<SponsorBlockSegment> { Seg() });
+
+		await MakeOrchestrator().ProcessAsync(item, ProcessReason.ItemAdded, CancellationToken.None);
+
+		await _api.Received(1).GetSegmentsAsync("abcdefghijk", Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+	}
+
+	[Fact]
 	public async Task TransientHttpFailure_DoesNotAdvanceState()
 	{
 		var item = FakeItem(Guid.NewGuid());
