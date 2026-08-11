@@ -12,14 +12,14 @@ Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names fi
 
 | Jellyfin | SponsorBlock | Status |
 |---|---|---|
-| 12.x | `2.0.0.0` | Current release |
+| 12.x | `2.0.1.0` | Current release |
 | 10.11 | `1.1.12.0` | Last compatible release |
 
-SponsorBlock `2.0.0.0` requires Jellyfin 12 and is incompatible with older Jellyfin versions. Jellyfin 10.11 users must install [`v1.1.12.0`](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/tag/v1.1.12.0). The repository manifest keeps both versions available and lets Jellyfin select the matching ABI.
+SponsorBlock `2.0.1.0` requires Jellyfin 12 and is incompatible with older Jellyfin versions. Jellyfin 10.11 users must install [`v1.1.12.0`](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/tag/v1.1.12.0). The repository manifest keeps both versions available and lets Jellyfin select the matching ABI.
 
 Additional requirements:
 
-- YouTube videos with the 11-character video ID in the filename (e.g., `dQw4w9WgXcQ.mp4`)
+- YouTube videos whose 11-character video ID is available in the filename or Jellyfin's `Youtube` provider metadata
 - **YouTube publish date** set in Jellyfin's `PremiereDate` metadata field. This is required for convergence-based polling to work — the plugin uses the publish date to determine when SponsorBlock data has converged and a video no longer needs to be polled. [TubeArchivist](https://www.tubearchivist.com/) populates this automatically. If your import tool does not set `PremiereDate`, the age-gate is skipped and videos are polled indefinitely via the consecutive-unchanged counter only.
 
 ## Installation
@@ -35,15 +35,16 @@ Additional requirements:
 ### Manual installation
 
 1. Download `jellyfin-plugin-sponsorblock-<version>.zip` from the [release matching your Jellyfin version](https://github.com/felixfoertsch/jellyfin-sponsorblock/releases)
-2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_2.0.0.0`)
+2. Extract it into `<jellyfin-data>/plugins/SponsorBlock_<version>/` (e.g., `SponsorBlock_2.0.1.0`)
 3. Restart Jellyfin
 
 ## Setup
 
 1. Open **Dashboard → Plugins → SponsorBlock**
 2. Under **Libraries**, tick the YouTube library (or libraries) the plugin should act on. **Until you select at least one library, the plugin does nothing.**
-3. Pick the categories you want to skip
-4. Save
+3. Choose where the plugin should read YouTube IDs from
+4. Pick the categories you want to skip
+5. Save
 
 That's it for new videos — the plugin reacts to library and playback events automatically.
 For an existing archive, the daily refresh discovers selected-library items and fetches their segments. Use **Force scan all selected libraries** on the plugin config page when you want the backfill to start immediately.
@@ -79,14 +80,23 @@ Two signals determine convergence:
 
 If `PremiereDate` is not set (e.g. your import tool doesn't populate it), the age gate is skipped. The item still converges via the consecutive-unchanged counter, but the first 5 days of polling always happen regardless of video age.
 
-## File matching
+## YouTube ID source
 
-The plugin needs to find the YouTube video ID in the filename. Two modes are available:
+The plugin needs the original 11-character YouTube video ID. Choose its source in the plugin settings:
+
+| Source | Description |
+|---|---|
+| **Filename** (default) | Extract the ID from the media filename using one of the modes below. This preserves the behavior used by existing installations. |
+| **Jellyfin metadata** | Read Jellyfin's `Youtube` provider ID. Use this for tools such as Pinchflat that store the ID in NFO metadata instead of the filename. |
+
+Filename source supports two formats:
 
 | Mode | Example | Description |
 |---|---|---|
 | **YouTube ID as Filename** (default) | `dQw4w9WgXcQ.mp4` | The filename without extension is the ID. This is how TubeArchivist names files. |
 | **Custom Regex** | `Cool Video [dQw4w9WgXcQ].mp4` | A regex with one capture group extracts the ID. Default pattern: `\[([a-zA-Z0-9_-]{11})\]` |
+
+Jellyfin metadata mode reads the `Youtube` provider ID that Jellyfin imports from `<uniqueid type="youtube">…</uniqueid>`. The plugin does not parse NFO files itself. `<youtubeid>` is not supported because Jellyfin does not expose that element without a separate external-ID provider.
 
 ## Category mapping
 
@@ -135,7 +145,7 @@ The endpoint is `POST /Plugins/SponsorBlock/Reset` (admin only).
 ```bash
 dotnet build
 dotnet test
-./scripts/package-release.sh 2.0.0.0
+./scripts/package-release.sh 2.0.1.0
 ```
 
 The plugin DLL is at `Jellyfin.Plugin.SponsorBlock/bin/Release/net10.0/Jellyfin.Plugin.SponsorBlock.dll`.

@@ -7,6 +7,14 @@
 		"owner": "felixfoertsch",
 		"versions": [
 			{
+				"version": "2.0.1.0",
+				"changelog": "Add an opt-in Jellyfin metadata source for YouTube IDs. Preserve filename and custom-regex matching as the default, read validated Youtube provider IDs imported from NFO uniqueid metadata, and expose the source choice in plugin settings.",
+				"targetAbi": "12.0.0.0",
+				"sourceUrl": "https://github.com/felixfoertsch/jellyfin-sponsorblock/releases/download/v2.0.1.0/jellyfin-plugin-sponsorblock-2.0.1.0.zip",
+				"checksum": "555337b6c13befee8b57c4bd294a9bcf",
+				"timestamp": "2026-08-11T11:30:49Z"
+			},
+			{
 				"version": "2.0.0.0",
 				"changelog": "Add Jellyfin 12 support. Retarget to .NET 10 and Jellyfin Controller 12.0.0-rc3, implement the new media-segment cleanup contract, and preserve the event-driven SponsorBlock workflow without enabling the core library segment scan.",
 				"targetAbi": "12.0.0.0",

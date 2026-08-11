@@ -9,8 +9,8 @@
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<EnableSourceLink>false</EnableSourceLink>
 		<PathMap>$(MSBuildProjectDirectory)=/_/Jellyfin.Plugin.SponsorBlock</PathMap>
-		<AssemblyVersion>2.0.0.0</AssemblyVersion>
-		<FileVersion>2.0.0.0</FileVersion>
+		<AssemblyVersion>2.0.1.0</AssemblyVersion>
+		<FileVersion>2.0.1.0</FileVersion>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Jellyfin.Controller" Version="12.0.0-rc3" />

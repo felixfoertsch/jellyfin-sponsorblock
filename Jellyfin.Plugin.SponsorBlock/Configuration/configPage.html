@@ -28,20 +28,34 @@
 				</div>
 
 				<div class="verticalSection">
-					<h3>File Matching</h3>
+					<h3>YouTube ID</h3>
 					<div class="selectContainer">
-						<label class="selectLabel" for="FileMatchingMode">File Matching Mode</label>
-						<select id="FileMatchingMode" is="emby-select">
-							<option value="YouTubeIdAsFilename">YouTube ID as Filename (e.g., 4pG8_bWpmaE.mp4)</option>
-							<option value="CustomRegex">Custom Regex</option>
+						<label class="selectLabel" for="YouTubeIdSource">YouTube ID Source</label>
+						<select id="YouTubeIdSource" is="emby-select">
+							<option value="Filename">Filename</option>
+							<option value="JellyfinMetadata">Jellyfin metadata</option>
 						</select>
-					</div>
-					<div id="CustomRegexContainer" class="inputContainer" style="display: none;">
-						<label class="inputLabel" for="CustomRegexPattern">Custom Regex Pattern</label>
-						<input id="CustomRegexPattern" type="text" is="emby-input" />
 						<div class="fieldDescription">
-							Must contain one capture group for the YouTube video ID.
-							Default: <code>\[([a-zA-Z0-9_-]{11})\]</code> — matches [videoID] in filenames.
+							Metadata mode reads Jellyfin's Youtube provider ID, normally imported from
+							<code>&lt;uniqueid type="youtube"&gt;</code> in an NFO file. The standalone
+							<code>&lt;youtubeid&gt;</code> element is not supported.
+						</div>
+					</div>
+					<div id="FilenameMatchingContainer">
+						<div class="selectContainer">
+							<label class="selectLabel" for="FileMatchingMode">Filename Format</label>
+							<select id="FileMatchingMode" is="emby-select">
+								<option value="YouTubeIdAsFilename">YouTube ID as Filename (e.g., 4pG8_bWpmaE.mp4)</option>
+								<option value="CustomRegex">Custom Regex</option>
+							</select>
+						</div>
+						<div id="CustomRegexContainer" class="inputContainer" style="display: none;">
+							<label class="inputLabel" for="CustomRegexPattern">Custom Regex Pattern</label>
+							<input id="CustomRegexPattern" type="text" is="emby-input" />
+							<div class="fieldDescription">
+								Must contain one capture group for the YouTube video ID.
+								Default: <code>\[([a-zA-Z0-9_-]{11})\]</code> — matches [videoID] in filenames.
+							</div>
 						</div>
 					</div>
 				</div>
@@ -226,6 +240,7 @@
 					]).then(function (results) {
 						var config = results[0];
 						var virtualFolders = results[1];
+						document.getElementById('YouTubeIdSource').value = config.YouTubeIdSource || 'Filename';
 						document.getElementById('FileMatchingMode').value = config.FileMatchingMode;
 						document.getElementById('CustomRegexPattern').value = config.CustomRegexPattern;
 						document.getElementById('DailyScanHour').value = config.DailyScanHour;
@@ -243,7 +258,7 @@
 						document.getElementById('Filler').checked = config.Filler;
 						document.getElementById('MusicOfftopic').checked = config.MusicOfftopic;
 						SponsorBlockConfig.renderLibraryList(config, virtualFolders);
-						SponsorBlockConfig.toggleRegexField();
+						SponsorBlockConfig.toggleSourceFields();
 						Dashboard.hideLoadingMsg();
 					});
 				},
@@ -251,6 +266,7 @@
 				save: function () {
 					Dashboard.showLoadingMsg();
 					ApiClient.getPluginConfiguration(this.pluginUniqueId).then(function (config) {
+						config.YouTubeIdSource = document.getElementById('YouTubeIdSource').value;
 						config.FileMatchingMode = document.getElementById('FileMatchingMode').value;
 						config.CustomRegexPattern = document.getElementById('CustomRegexPattern').value;
 						config.DailyScanHour = parseInt(document.getElementById('DailyScanHour').value, 10);
@@ -274,10 +290,18 @@
 					});
 				},
 
+				toggleSourceFields: function () {
+					var source = document.getElementById('YouTubeIdSource').value;
+					document.getElementById('FilenameMatchingContainer').style.display =
+						source === 'Filename' ? '' : 'none';
+					SponsorBlockConfig.toggleRegexField();
+				},
+
 				toggleRegexField: function () {
+					var source = document.getElementById('YouTubeIdSource').value;
 					var mode = document.getElementById('FileMatchingMode').value;
 					document.getElementById('CustomRegexContainer').style.display =
-						mode === 'CustomRegex' ? '' : 'none';
+						source === 'Filename' && mode === 'CustomRegex' ? '' : 'none';
 				},
 
 				reset: function () {
@@ -323,6 +347,8 @@
 				}
 			};
 
+			document.getElementById('YouTubeIdSource')
+				.addEventListener('change', SponsorBlockConfig.toggleSourceFields);
 			document.getElementById('FileMatchingMode')
 				.addEventListener('change', SponsorBlockConfig.toggleRegexField);
 
