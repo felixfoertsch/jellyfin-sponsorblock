@@ -1,8 +1,11 @@
 # jellyfin-sponsorblock
 
-A Jellyfin plugin that skips sponsored segments in YouTube videos using [SponsorBlock](https://sponsor.ajay.app/) data.
+A Jellyfin plugin that provides sponsored-segment markers for YouTube videos using [SponsorBlock](https://sponsor.ajay.app/) data.
 
-If you download YouTube videos and watch them in Jellyfin, you lose the SponsorBlock browser extension. This plugin brings it back: it fetches community-submitted segment data from the SponsorBlock API and feeds it into Jellyfin's native Media Segments system, so your players auto-skip sponsors, self-promotion, intros, outros, and more.
+If you download YouTube videos and watch them in Jellyfin, you lose the SponsorBlock browser extension. This plugin brings its segment data into Jellyfin's native Media Segments system, so supported players can show skip buttons or automatically skip sponsors, self-promotion, intros, outros, and more. **The plugin supplies the markers; each viewer's playback settings determine whether the player shows a button, skips automatically, or does nothing.**
+
+> [!IMPORTANT]
+> Installing and enabling the plugin does not automatically enable commercial skip buttons in Jellyfin Web. Each viewer needs to set **Commercial → Ask to Skip** in **Settings → Playback → Media Segment Actions** on the browser/device they use. See [Enable skip buttons in your player](#2-enable-skip-buttons-in-your-player) below for screenshots and instructions.
 
 Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names files by YouTube ID and populates the publish date), but has no dependency on it. Any YouTube library works as long as the video ID is in the filename.
 
@@ -40,16 +43,52 @@ Additional requirements:
 
 ## Setup
 
+There are two separate steps: an administrator enables segment collection on the server, and each viewer enables the desired playback behavior in their player.
+
+### 1. Configure the server plugin
+
 1. Open **Dashboard → Plugins → SponsorBlock**
 2. Under **Libraries**, tick the YouTube library (or libraries) the plugin should act on. **Until you select at least one library, the plugin does nothing.**
 3. Choose where the plugin should read YouTube IDs from
-4. Pick the categories you want to skip
+4. Pick the categories whose segments the plugin should collect
 5. Save
 
-That's it for new videos — the plugin reacts to library and playback events automatically.
+The plugin now reacts to library and playback events automatically.
 For an existing archive, the daily refresh discovers selected-library items and fetches their segments. Use **Force scan all selected libraries** on the plugin config page when you want the backfill to start immediately.
 
-Each viewer can still tune skip vs. ask-to-skip behavior in **Settings → Playback → Media Segments** on their own device (Jellyfin stores that preference in the browser's local storage).
+### 2. Enable skip buttons in your player
+
+Do this while signed in as the **user who will watch the videos**, not just as the administrator who installed the plugin. These are the viewer's playback settings, not the SponsorBlock configuration page in the dashboard.
+
+1. Open your user menu/profile settings and go to **Settings → Playback**.
+2. Scroll to **Media Segment Actions** (the Media Segments section).
+3. Set **Commercial** to **Ask to Skip** to show a button during sponsored segments. Choose **Skip** instead if you want automatic skipping without a prompt.
+4. Set any other segment types you use, such as **Intro**, **Outro**, or **Preview**, to the behavior you prefer.
+5. **Save**, then start the video again. Jellyfin Web reads these preferences when playback starts.
+
+The following screenshots are from the [setup explanation in issue #1](https://github.com/felixfoertsch/jellyfin-sponsorblock/issues/1#issuecomment-4726185405). Labels and layout may vary with the Jellyfin version and language.
+
+<img src="https://github.com/user-attachments/assets/989a3f17-7b53-4a1d-8bf0-2fa2fcb443f7" alt="Jellyfin user settings for configuring playback behavior" width="760" />
+
+<img src="https://github.com/user-attachments/assets/e810e600-c8f8-41fb-a5eb-23084954ab93" alt="Jellyfin playback settings showing the media segment action choices" width="640" />
+
+| Player action | What happens when a matching segment is reached |
+|---|---|
+| **None** | No skip button and no automatic skip, even if the plugin successfully stored the segment. |
+| **Ask to Skip** | The player offers a skip button. Playback continues unless you choose to skip. |
+| **Skip** | The player skips the segment automatically. |
+
+**Why Commercial?** SponsorBlock's **Sponsor** and **Self-Promotion** categories are both stored as Jellyfin **Commercial** segments. Enabling those categories in the plugin controls which markers are collected; it does not enable the player's Commercial action. See [Category mapping](#category-mapping) for the other mappings.
+
+**Repeat this for each browser/device and viewer using Jellyfin Web.** The web client stores segment-action preferences locally for the user, rather than synchronizing them through the server. Configuring your administrator account does not configure another viewer's account. Other Jellyfin clients have their own settings and segment-support capabilities.
+
+Existing saved choices remain in effect, including **None**. Updating the plugin, rescanning the library, or changing a future client default does not replace a stored playback preference. You do not need to reset SponsorBlock merely to switch between asking and automatic skipping.
+
+### Segments are detected, but there is no skip button
+
+First check **Commercial → Ask to Skip** in the settings of the actual player and account being used, save, and restart playback. A log entry saying that segments were written confirms the server-side step; it does not confirm that the viewer enabled prompts.
+
+If that setting is already correct, check that the video's library is selected in the plugin, the YouTube ID is being resolved, and SponsorBlock returned data for the enabled categories. The button appears when the relevant segment is reached, not continuously throughout the video. Also verify that the client supports Jellyfin media-segment prompts. Jellyfin Web suppresses prompts for segments shorter than three seconds.
 
 ## How it works
 
@@ -102,7 +141,7 @@ Jellyfin metadata mode reads the `Youtube` provider ID that Jellyfin imports fro
 
 SponsorBlock has more category types than Jellyfin supports. The mapping:
 
-| SponsorBlock | Jellyfin | Default |
+| SponsorBlock | Jellyfin | Plugin collection default |
 |---|---|---|
 | Sponsor | Commercial | enabled |
 | Self-Promotion | Commercial | enabled |
@@ -112,6 +151,8 @@ SponsorBlock has more category types than Jellyfin supports. The mapping:
 | Preview | Preview | disabled |
 | Filler | Commercial | disabled |
 | Non-Music (in music videos) | Commercial | disabled |
+
+These defaults enable collection of segment markers, not skip buttons or automatic skipping. Configure the corresponding Jellyfin segment action in [your player's playback settings](#2-enable-skip-buttons-in-your-player).
 
 ## Advanced configuration
 
