@@ -68,7 +68,7 @@ The old plugin directory remains untouched until verification succeeds. Rollback
 ## Guided Gates
 
 - **GG-1:** Open Jellyfin's Plugins dashboard and confirm SponsorBlock `2.0.0.0` is active while Chapter Segments remains independently disabled.
-- **GG-2:** Play one known TubeArchivist video that has SponsorBlock data and confirm the client exposes or skips the stored segment as configured.
+- **GG-2:** Play one known YouTube video that has SponsorBlock data and confirm the client exposes or skips the stored segment as configured.
 - **GG-3:** Play one scoped video that requires a fresh lookup and confirm its SponsorBlock log records the playback-triggered decision without starting a library-wide media-segment scan.
 - **GG-4:** Confirm normal playback, seeking, and session startup remain responsive after the plugin restart.
 

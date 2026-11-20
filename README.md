@@ -7,7 +7,7 @@ If you download YouTube videos and watch them in Jellyfin, you lose the SponsorB
 > [!IMPORTANT]
 > Installing and enabling the plugin does not automatically enable commercial skip buttons in Jellyfin Web. Each viewer needs to set **Commercial → Ask to Skip** in **Settings → Playback → Media Segment Actions** on the browser/device they use. See [Enable skip buttons in your player](#2-enable-skip-buttons-in-your-player) below for screenshots and instructions.
 
-Works great with [TubeArchivist](https://www.tubearchivist.com/) (which names files by YouTube ID and populates the publish date), but has no dependency on it. Any YouTube library works as long as the video ID is in the filename.
+YouTube Archivar names files by YouTube ID and populates the publish date. The plugin works with any YouTube library that provides the video ID in the filename or Jellyfin metadata.
 
 ## Requirements
 
@@ -23,7 +23,7 @@ SponsorBlock `2.0.1.0` requires Jellyfin 12 and is incompatible with older Jelly
 Additional requirements:
 
 - YouTube videos whose 11-character video ID is available in the filename or Jellyfin's `Youtube` provider metadata
-- **YouTube publish date** set in Jellyfin's `PremiereDate` metadata field. This is required for convergence-based polling to work — the plugin uses the publish date to determine when SponsorBlock data has converged and a video no longer needs to be polled. [TubeArchivist](https://www.tubearchivist.com/) populates this automatically. If your import tool does not set `PremiereDate`, the age-gate is skipped and videos are polled indefinitely via the consecutive-unchanged counter only.
+- **Optional YouTube publish date** in Jellyfin's `PremiereDate` field. YouTube Archivar sets this automatically. Without it, the plugin stops polling when the segment data stays unchanged for the configured number of checks.
 
 ## Installation
 
@@ -132,7 +132,7 @@ Filename source supports two formats:
 
 | Mode | Example | Description |
 |---|---|---|
-| **YouTube ID as Filename** (default) | `dQw4w9WgXcQ.mp4` | The filename without extension is the ID. This is how TubeArchivist names files. |
+| **YouTube ID as Filename** (default) | `dQw4w9WgXcQ.mp4` | The filename without extension is the ID. This is how YouTube Archivar names files. |
 | **Custom Regex** | `Cool Video [dQw4w9WgXcQ].mp4` | A regex with one capture group extracts the ID. Default pattern: `\[([a-zA-Z0-9_-]{11})\]` |
 
 Jellyfin metadata mode reads the `Youtube` provider ID that Jellyfin imports from `<uniqueid type="youtube">…</uniqueid>`. The plugin does not parse NFO files itself. `<youtubeid>` is not supported because Jellyfin does not expose that element without a separate external-ID provider.

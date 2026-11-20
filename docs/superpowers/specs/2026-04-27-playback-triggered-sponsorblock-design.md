@@ -14,7 +14,7 @@ The scan model also misses fresh data. SponsorBlock data is crowdsourced and acc
 
 - Replace the periodic full-library scan with event-driven fetching.
 - Keep segments fresh as SponsorBlock data accumulates.
-- Scope behavior to a configurable subset of libraries (e.g. only the TubeArchivist library).
+- Scope behavior to a configurable subset of libraries (e.g. only the YouTube library).
 - Keep the SponsorBlock public API load proportional to actual usage, not library size.
 
 ## Non-goals
@@ -232,6 +232,6 @@ Services depend on **interfaces** (`ISponsorBlockApiClient`, `ISponsorBlockState
 
 - **GG-1:** After deploy, add a brand-new YouTube video to the configured library. Within ~10 seconds, segments appear on the item (verified via the Jellyfin web client's media segment indicator or the `/MediaSegments/{itemId}` API).
 - **GG-2:** Add a brand-new YouTube video that has no SponsorBlock data yet (e.g. just-uploaded). Confirm a row appears in SQLite with state=`Pending`. Play the video; confirm a fetch is triggered. Wait 48h+; confirm the daily scan promotes it to `NoData` if still empty.
-- **GG-3:** Configure the library allowlist to only the TubeArchivist library. Add an item to a non-listed library (e.g. movies); confirm no SQLite row is created and no SponsorBlock request is made.
+- **GG-3:** Configure the library allowlist to only the YouTube library. Add an item to a non-listed library (e.g. movies); confirm no SQLite row is created and no SponsorBlock request is made.
 - **GG-4:** Confirm the new "SponsorBlock daily refresh" task appears in Jellyfin's Tasks page, is configured to run daily at the hour set in plugin config, and completes successfully when triggered manually.
 - **GG-5:** During a SponsorBlock outage (simulate by pointing the API base URL to a black-hole), trigger the daily scan. Confirm no rows transition to `NoData` and warnings are logged.

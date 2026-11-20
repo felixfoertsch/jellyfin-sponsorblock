@@ -65,7 +65,7 @@ ItemAdded event payload type (ILibraryManager) → EventHandler<ItemChangeEventA
 ItemRemoved event payload type (ILibraryManager) → EventHandler<ItemChangeEventArgs>             // namespace: MediaBrowser.Controller.Library
 ```
 
-**Important caveat:** `DeleteSegmentsAsync` in 10.11 has no per-provider filter — it nukes every segment for the given item, regardless of which plugin wrote it. For the scoped TubeArchivist library this is fine in practice (no other segment provider acts on those items), but if a user later installs another segment plugin that targets the same library, our daily refresh would clobber its segments. Document this in the README before release. The `IMediaSegmentWriter.DeleteOwnedAsync` method should still be the orchestrator's only delete path — its docstring needs to reflect this "delete-all" reality.
+**Important caveat:** `DeleteSegmentsAsync` in 10.11 has no per-provider filter — it nukes every segment for the given item, regardless of which plugin wrote it. For the scoped YouTube library this is fine in practice (no other segment provider acts on those items), but if a user later installs another segment plugin that targets the same library, our daily refresh would clobber its segments. Document this in the README before release. The `IMediaSegmentWriter.DeleteOwnedAsync` method should still be the orchestrator's only delete path — its docstring needs to reflect this "delete-all" reality.
 
 If `ILibraryManager.ItemAdded`/`ItemRemoved` payload types are uncertain, repeat the probe trick for them too:
 

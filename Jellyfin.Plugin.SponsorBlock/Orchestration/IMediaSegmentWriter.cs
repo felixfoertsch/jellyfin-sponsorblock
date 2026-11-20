@@ -30,7 +30,7 @@ public interface IMediaSegmentWriter
 	/// Removes all segments for an item. Note: Jellyfin 10.11's
 	/// <c>IMediaSegmentManager.DeleteSegmentsAsync</c> has no per-provider filter, so this
 	/// nukes any segment any provider wrote for the item. Acceptable for the SponsorBlock
-	/// plugin's scoped (TubeArchivist YouTube) library use case; documented as a caveat.
+	/// plugin's scoped YouTube library use case; documented as a caveat.
 	/// </summary>
 	/// <param name="itemId">The Jellyfin item id.</param>
 	/// <param name="cancellationToken">Cancellation token.</param>

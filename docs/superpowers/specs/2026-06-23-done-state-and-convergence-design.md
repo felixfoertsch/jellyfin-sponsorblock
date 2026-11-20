@@ -15,7 +15,7 @@ The current model also has a stale-segments bug (fixed separately): when Sponsor
 ## Goals
 
 - Stop polling videos whose SponsorBlock data has converged.
-- Use the YouTube publish date (`BaseItem.PremiereDate`, populated by TubeArchivist) as the primary convergence signal: videos older than 30 days → one final fetch, then freeze.
+- Use the YouTube publish date (`BaseItem.PremiereDate`, populated by YouTube Archivar) as the primary convergence signal: videos older than 30 days → one final fetch, then freeze.
 - Use a consecutive-unchanged counter as the secondary convergence signal: 5 daily fetches with identical segment data → freeze.
 - Clean refactor of the daily scan task: separate "reconcile known items" from "discover untracked items."
 - Drop-and-recreate the SQLite database on upgrade — no in-place migration of old rows.
@@ -184,7 +184,7 @@ ProcessLockedAsync(itemId, premiereDate, videoId, reason, config, ct):
       store.Upsert(newState, consecutive, hash)
 ```
 
-If `PremiereDate` is null (defensive — shouldn't happen for TubeArchivist items), the age gate is skipped. The item stays in the young-item flow indefinitely — same behavior as today.
+If `PremiereDate` is null (defensive — shouldn't happen for YouTube Archivar items), the age gate is skipped. The item stays in the young-item flow indefinitely — same behavior as today.
 
 ## Daily scan task refactor
 
